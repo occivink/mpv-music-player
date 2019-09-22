@@ -1,4 +1,5 @@
 local utils = require 'mp.utils'
+local msg = require 'mp.msg'
 local assdraw = require 'mp.assdraw'
 
 local gallery_mt = {}
@@ -63,10 +64,16 @@ function gallery_new()
         item_to_text = function(index, item) return "", true end,
         item_to_border = function(index, item) return 0, "" end,
         set_geometry_props = function(ww, wh) return end,
+        ass_show = function(ass) end,
+        ass_hide = function() end,
 
         idle,
         window_changed
     }, gallery_mt)
+
+    gallery.ass_show = function(ass) mp.set_osd_ass(gallery.geometry.window[1], gallery.geometry.window[2], ass) end
+    gallery.ass_hide = function() mp.set_osd_ass(1280, 720, "") end
+
     for i = 1, gallery.config.max_thumbnails do
         gallery.overlays.active[i] = false
     end
@@ -79,7 +86,7 @@ function gallery_mt.show_overlay(gallery, index_1, thumb_path)
     local index_0 = index_1 - 1
     local x, y = gallery:view_index_position(index_0)
     mp.commandv("overlay-add",
-        tostring(index_0 + overlay_range),
+        tostring(index_0 + gallery.config.overlay_range),
         tostring(math.floor(x + 0.5)),
         tostring(math.floor(y + 0.5)),
         thumb_path,
@@ -93,7 +100,7 @@ end
 
 function gallery_mt.remove_overlays(gallery)
     for view_index, _ in pairs(gallery.overlays.active) do
-        mp.commandv("overlay-remove ", overlay_range + view_index - 1)
+        mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
         gallery.overlays.active[view_index] = false
     end
     gallery.overlays.missing = {}
@@ -112,7 +119,7 @@ function gallery_mt.refresh_overlays(gallery, force)
     for view_index = 1, g.rows * g.columns do
         local index = gallery.view.first + view_index - 1
         local active = o.active[view_index]
-        if index <= #gallery.items then
+        if index > 0 and index <= #gallery.items then
             local thumb_path = gallery.item_to_overlay_path(index, gallery.items[index])
             if not force and active == thumb_path then
                 -- nothing to do
@@ -121,7 +128,7 @@ function gallery_mt.refresh_overlays(gallery, force)
             else
                 -- need to generate that thumbnail
                 o.active[view_index] = false
-                mp.commandv("overlay-remove ", overlay_range + view_index - 1)
+                mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
                 o.missing[thumb_path] = view_index
                 todo[#todo + 1] = { index = index, output = thumb_path }
             end
@@ -129,7 +136,7 @@ function gallery_mt.refresh_overlays(gallery, force)
             -- might happen if we're close to the end of gallery.items
             if active ~= false then
                 o.active[view_index] = false
-                mp.commandv("overlay-remove ", overlay_range + view_index - 1)
+                mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
             end
         end
     end
@@ -167,7 +174,7 @@ function gallery_mt.index_at(gallery, mx, my)
         local column = math.floor(mx / (g.thumbnail_size[1] + g.effective_spacing[1]))
         local row = math.floor(my / (g.thumbnail_size[2] + g.effective_spacing[2]))
         local index = gallery.view.first + row * g.columns + column
-        if index <= gallery.view.last then
+        if index > 0 and index <= gallery.view.last then
             return index
         end
     end
@@ -192,6 +199,12 @@ end
 -- and that selection is within the view
 -- to be called after the playlist, view or selection was modified somehow
 function gallery_mt.ensure_view_valid(gallery)
+    if #gallery.items == 0 then
+        gallery.selection = 0
+        gallery.view.first = 0
+        gallery.view.last = 0
+        return
+    end
     local v = gallery.view
     local g = gallery.geometry
     local selection_row = math.floor((gallery.selection - 1) / g.columns)
@@ -253,6 +266,7 @@ end
 
 function gallery_mt.refresh_placeholders(gallery)
     if not gallery.config.show_placeholders then return end
+    if gallery.view.first == 0 then return end
     local g = gallery.geometry
     local a = assdraw.ass_new()
     a:new_event()
@@ -274,6 +288,7 @@ end
 function gallery_mt.refresh_scrollbar(gallery)
     if not gallery.config.scrollbar then return end
     gallery.ass.scrollbar = ""
+    if gallery.view.first == 0 then return end
     local g = gallery.geometry
     local before = (gallery.view.first - 1) / #gallery.items
     local after = (#gallery.items - gallery.view.last) / #gallery.items
@@ -314,8 +329,12 @@ function gallery_mt.refresh_scrollbar(gallery)
 end
 
 function gallery_mt.refresh_selection(gallery)
-    local selection_ass = assdraw.ass_new()
     local v = gallery.view
+    if v.first == 0 then
+        gallery.ass.selection = ""
+        return
+    end
+    local selection_ass = assdraw.ass_new()
     local g = gallery.geometry
     local draw_frame = function(index, size, color)
         local x, y = gallery:view_index_position(index - v.first)
@@ -365,7 +384,7 @@ function gallery_mt.refresh_selection(gallery)
     gallery.ass.selection = selection_ass.text
 end
 
-function gallery_mt.ass_show(gallery, selection, scrollbar, placeholders, background)
+function gallery_mt.ass_refresh(gallery, selection, scrollbar, placeholders, background)
     if selection then gallery:refresh_selection() end
     if scrollbar then gallery:refresh_scrollbar() end
     if placeholders then gallery:refresh_placeholders() end
@@ -373,8 +392,7 @@ function gallery_mt.ass_show(gallery, selection, scrollbar, placeholders, backgr
     local merge = function(a, b)
         return b ~= "" and (a .. "\n" .. b) or a
     end
-    mp.set_osd_ass(gallery.geometry.window[1], gallery.geometry.window[2],
-        merge(
+    gallery.ass_show(merge(
             gallery.ass.background,
             merge(
                 gallery.ass.placeholders,
@@ -387,25 +405,22 @@ function gallery_mt.ass_show(gallery, selection, scrollbar, placeholders, backgr
     )
 end
 
-function gallery_mt.ass_hide()
-    mp.set_osd_ass(1280, 720, "")
-end
-
 function gallery_mt.idle_handler(gallery)
     if gallery.pending.selection then
-        gallery.selection = gallery.pending.selection
+        gallery.selection = math.max(1, math.min(gallery.pending.selection, #gallery.items))
         gallery.pending.selection = nil
         if gallery:ensure_view_valid() then
             gallery:refresh_overlays(false)
-            gallery:ass_show(true, true, true, false)
+            gallery:ass_refresh(true, true, true, false)
         else
-            gallery:ass_show(true, false, false, false)
+            gallery:ass_refresh(true, false, false, false)
         end
     end
     if gallery.pending.geometry_changed then
         gallery.pending.geometry_changed = false
         local ww, wh = mp.get_osd_size()
         if ww ~= gallery.geometry.window[1] or wh ~= gallery.geometry.window[2] then
+            gallery.geometry.window = {ww,wh}
             gallery.set_geometry_props(ww, wh)
             if not gallery:enough_space() then
                 gallery.too_small()
@@ -415,12 +430,12 @@ function gallery_mt.idle_handler(gallery)
             gallery:compute_geometry()
             local new_total = gallery.geometry.rows * gallery.geometry.columns
             for view_index = new_total + 1, old_total do
-                mp.command("overlay-remove " .. view_index - 1)
+                mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
                 gallery.overlays.active[view_index] = false
             end
             gallery:ensure_view_valid()
             gallery:refresh_overlays(true)
-            gallery:ass_show(true, true, true, true)
+            gallery:ass_refresh(true, true, true, true)
         end
     end
 end
@@ -428,7 +443,7 @@ end
 function gallery_mt.items_changed(gallery)
     gallery:ensure_view_valid()
     gallery:refresh_overlays(false)
-    gallery:ass_show(true, true, true, false)
+    gallery:ass_refresh(true, true, true, false)
 end
 
 function gallery_mt.thumbnail_generated(gallery, thumb_path)
@@ -437,7 +452,7 @@ function gallery_mt.thumbnail_generated(gallery, thumb_path)
     if view_index == nil then return end
     gallery:show_overlay(view_index, thumb_path)
     if not gallery.config.always_show_placeholders then
-        gallery:ass_show(false, false, true, false)
+        gallery:ass_refresh(false, false, true, false)
     end
     gallery.overlays.missing[thumb_path] = nil
 end
@@ -463,15 +478,18 @@ end
 
 function gallery_mt.activate(gallery, selection)
     if gallery.active then return false end
-    if #gallery.items == 0 then return false end
     local ww, wh = mp.get_osd_size()
+    gallery.geometry.window = {ww,wh}
     gallery.set_geometry_props(ww, wh)
-    if not gallery:enough_space() then return false end
+    if not gallery:enough_space() then
+        msg.warn("Not enough space, refusing to start")
+        return false
+    end
     gallery:compute_geometry()
     gallery.selection = selection
     gallery:ensure_view_valid()
     gallery:refresh_overlays(false)
-    gallery:ass_show(true, true, true, true)
+    gallery:ass_refresh(true, true, true, true)
     gallery.idle = function() gallery:idle_handler() end
     mp.register_idle(gallery.idle)
     gallery.window_changed = function() gallery.pending.geometry_changed = true end
@@ -485,7 +503,7 @@ end
 function gallery_mt.deactivate(gallery)
     if not gallery.active then return end
     gallery:remove_overlays()
-    gallery:ass_hide()
+    gallery.ass_hide()
     mp.unregister_idle(gallery.idle)
     mp.unobserve_property(gallery.window_changed)
     gallery.active = false
