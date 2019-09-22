@@ -234,9 +234,23 @@ function redraw_seekbar_background()
 end
 
 function redraw_seekbar_times()
-    if not playing_index or not length then return end
-    local pos = mp.get_property_number("time-pos")
+    if not playing_index or not length then
+        if ass.seekbar.times ~= "" then
+            ass.seekbar.times = ""
+            ass.changed = true
+        end
+        return
+    end
 
+    local format_time = function(time)
+        if time > 60 * 60 then
+            return mp.format_time(time, "%h:%M:%S")
+        else
+            return mp.format_time(time, "%M:%S")
+        end
+    end
+
+    local pos = mp.get_property_number("time-pos")
     local a = assdraw.ass_new()
     a:new_event()
     local g = seekbar_geometry
@@ -245,12 +259,12 @@ function redraw_seekbar_times()
         local x = g.waveform_position[1] + g.waveform_size[1] * (pos / length)
         a:pos(x, y)
         a:append("{\\an8\\fs " .. time_text_size .. "\\bord0}")
-        a:append(mp.format_time(pos, "%M:%S"))
+        a:append(format_time(pos))
     end
     a:new_event()
     a:append("{\\an9\\fs " .. time_text_size .. "\\bord0}")
     a:pos(g.waveform_position[1] + g.waveform_size[1], y)
-    a:append(mp.format_time(length, "%M:%S"))
+    a:append(format_time(length))
 
     local mx, my = mp.get_mouse_pos()
     local tx = mx - g.waveform_position[1]
@@ -259,7 +273,7 @@ function redraw_seekbar_times()
         a:new_event()
         a:append("{\\an8\\fs " .. time_text_size .. "\\bord0}")
         a:pos(mx, y)
-        a:append(mp.format_time(tx / g.waveform_size[1] * length, "%M:%S"))
+        a:append(format_time(tx / g.waveform_size[1] * length))
     end
 
     ass.seekbar.times = a.text
@@ -281,9 +295,7 @@ function redraw_cursor_bar()
     local a = assdraw.ass_new()
     a:new_event()
     a:pos(0, 0)
-    a:append('{\\bord0}')
-    a:append('{\\shad0}')
-    a:append('{\\1c&' .. cursor_bar_color .. '}')
+    a:append('{\\bord0\\shad0\\1c&' .. cursor_bar_color .. '}')
     a:draw_start()
     local w = cursor_bar_width/2
     local g = seekbar_geometry
@@ -303,9 +315,7 @@ function redraw_chapters()
     local a = assdraw.ass_new()
     a:new_event()
     a:pos(0, 0)
-    a:append('{\\bord0}')
-    a:append('{\\shad0}')
-    a:append('{\\1c&' .. chapters_marker_color .. '}')
+    a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
     a:draw_start()
     local w = chapters_marker_width/2
     local g = seekbar_geometry
@@ -319,7 +329,7 @@ function redraw_chapters()
     a:rect_cw(x - w, y1, x + w, y2)
     a:new_event()
     a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
-    a:append('{\\bord0}{\\an4}')
+    a:append('{\\bord0\\an4}')
     local album = albums[playing_index]
     local chap = mp.get_property_number("chapter")
     local text
@@ -327,7 +337,7 @@ function redraw_chapters()
         local title = string.match(chapters[chap + 1].title, ".*/%d+ (.*)%..-")
         text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d]", title_text_size, title, darker_text_color, chap + 1, #chapters)
     else
-        text = " "
+        text = string.format("{\\fs%d} ", title_text_size)
     end
     text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
     a:append(text)
