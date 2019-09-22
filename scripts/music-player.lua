@@ -45,13 +45,16 @@ local paused = false
 local albums = {}
 local queue = {}
 
-local queue_ass = ""
-local main_ass = ""
-local seekbar_ass = {
-    chapters = "",
-    elapsed = "",
-    background = "",
-    cursor_bar = "",
+local ass = {
+    queue = "",
+    main = "",
+    seekbar = {
+        chapters = "",
+        elapsed = "",
+        background = "",
+        cursor_bar = "",
+    },
+    changed = false,
 }
 
 local gallery_main = gallery_new()
@@ -169,28 +172,22 @@ function update_seekbar_geom(ww, wh)
     g.waveform_size = { g.size[1] - g.cover_size[1] - 3 * dist_h, g.size[2] - 2 * waveform_margin_y - (artist_album_text_size + title_text_size + time_text_size) }
 end
 
-function refresh_ass(ass)
-    local ww, wh = mp.get_osd_size()
-    mp.set_osd_ass(ww, wh, string.format("%s\n%s\n%s\n%s\n%s\n%s",
-        main_ass,
-        queue_ass,
-        seekbar_ass.background,
-        seekbar_ass.elapsed,
-        seekbar_ass.chapters,
-        seekbar_ass.cursor_bar
-    ))
+gallery_queue.ass_show = function(gallery_ass)
+    ass.queue = gallery_ass
+    ass.changed = true
 end
-gallery_queue.ass_show = function(ass)
-    queue_ass = ass
-    refresh_ass()
+gallery_main.ass_show = function(gallery_ass)
+    ass.main = gallery_ass
+    ass.changed = true
 end
-gallery_main.ass_show = function(ass)
-    main_ass = ass
-    refresh_ass()
+gallery_queue.ass_hide = function()
+    ass.queue = ""
+    ass.changed = true
 end
-
-gallery_queue.ass_hide = function() end
-gallery_main.ass_hide = function() end
+gallery_main.ass_hide = function()
+    ass.queue = ""
+    ass.changed = true
+end
 
 function set_video_position(ww, wh, x, y, w, h)
     local ratio = w / h
@@ -231,8 +228,8 @@ function redraw_seekbar_background()
     a:move_to(0,0)
     local g = seekbar_geometry
     a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
-    seekbar_ass.background = a.text
-    refresh_ass()
+    ass.seekbar.background = a.text
+    ass.changed = true
 end
 
 function redraw_cursor_bar()
@@ -241,9 +238,9 @@ function redraw_cursor_bar()
     local tx = x - g.waveform_position[1]
     local ty = y - g.waveform_position[2]
     if not playing_index or tx < 0 or tx > g.waveform_size[1] or ty < 0 or ty > g.waveform_size[2] then
-        if seekbar_ass.cursor_bar ~= "" then
-            seekbar_ass.cursor_bar = ""
-            refresh_ass()
+        if ass.seekbar.cursor_bar ~= "" then
+            ass.seekbar.cursor_bar = ""
+            ass.changed = true
         end
         return
     end
@@ -259,15 +256,14 @@ function redraw_cursor_bar()
     local y1 = g.waveform_position[2]
     local y2 = y1 + g.waveform_size[2]
     a:rect_cw(x - w, y1, x + w, y2)
-    a:draw_stop()
-    seekbar_ass.cursor_bar = a.text
-    refresh_ass()
+    ass.seekbar.cursor_bar = a.text
+    ass.changed = true
 end
 
 function redraw_chapters()
     if not chapters then
-        seekbar_ass.chapters = ""
-        refresh_ass()
+        ass.seekbar.chapters = ""
+        ass.changed = true
         return
     end
     local a = assdraw.ass_new()
@@ -301,15 +297,17 @@ function redraw_chapters()
     end
     text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
     a:append(text)
-    seekbar_ass.chapters = a.text
-    refresh_ass()
+    ass.seekbar.chapters = a.text
+    ass.changed = true
 end
 
 function redraw_elapsed()
     local pos = mp.get_property_number("time-pos")
     if not length or not pos then
-        seekbar_ass.elapsed = ""
-        refresh_ass()
+        if ass.seekbar.elapsed ~= "" then
+            ass.seekbar.elapsed = ""
+            ass.changed = true
+        end
         return
     end
     local a = assdraw.ass_new()
@@ -332,8 +330,8 @@ function redraw_elapsed()
     a:append("{\\an8}{\\fs " .. time_text_size .. "}{\\bord0}")
     local pos_readable = string.format("%02d:%02d", pos / 60, pos % 60)
     a:append(string.format("%s", pos_readable))
-    seekbar_ass.elapsed = a.text
-    refresh_ass()
+    ass.seekbar.elapsed = a.text
+    ass.changed = true
 end
 
 function gallery_main_activate()
@@ -396,7 +394,7 @@ mp.add_forced_key_binding("ENTER", "enter", function()
     end
 end)
 
-local change_focus = function(new)
+function change_focus(new)
     local old_focus = focus
     focus = (new - 1 + 3) % 3 + 1
     if focus == old_focus then return end
@@ -437,20 +435,6 @@ function element_from_pos(x, y)
     end
     return nil
 end
-
-local mouse_moved = false
-mp.register_idle(function()
-    if not mouse_moved then return end
-    local x, y = mp.get_mouse_pos()
-    local f = element_from_pos(x, y)
-    if f then
-        change_focus(f)
-    end
-    redraw_cursor_bar()
-    mouse_moved = false
-end)
-
-mp.add_forced_key_binding("mouse_move", "mouse_move", function() mouse_moved=true end)
 
 mp.add_forced_key_binding("DEL", "del", function()
     if focus == 2 then
@@ -644,9 +628,33 @@ for _, prop in ipairs({"osd-width", "osd-height"}) do
     mp.observe_property(prop, "native", function() size_changed = true end)
 end
 
+local mouse_moved = false
+mp.add_forced_key_binding("mouse_move", "mouse_move", function() mouse_moved = true end)
+
 mp.register_idle(function()
     if size_changed then
         start_or_resize()
         size_changed = false
+    end
+    if mouse_moved then
+        local x, y = mp.get_mouse_pos()
+        local f = element_from_pos(x, y)
+        if f then
+            change_focus(f)
+        end
+        redraw_cursor_bar()
+        mouse_moved = false
+    end
+    if ass.changed then
+        local ww, wh = mp.get_osd_size()
+        mp.set_osd_ass(ww, wh, string.format("%s\n%s\n%s\n%s\n%s\n%s",
+            ass.main,
+            ass.queue,
+            ass.seekbar.background,
+            ass.seekbar.elapsed,
+            ass.seekbar.chapters,
+            ass.seekbar.cursor_bar
+        ))
+        ass.changed = false
     end
 end)
