@@ -18,10 +18,14 @@ local chapters_marker_color="888888"
 local cursor_bar_width=3
 local cursor_bar_color="BBBBBB"
 local background_opacity= "BB"
-local waveform_padding_proportion=0
+local waveform_padding_proportion=2/3
+local title_text_size=32
+local artist_album_text_size=24
+local time_text_size=24
+local darker_text_color="888888"
 
 -- VARS
-local focus = 1 -- 0,1,2,3 is respectively none, gallery_main, gallery_queue, seekbar
+local focus = nil -- 0,1,2,3 is respectively none, gallery_main, gallery_queue, seekbar
 
 local seekbar_geometry = {
     position = {0,0},
@@ -114,7 +118,7 @@ gallery_queue.item_to_overlay_path = function(index, item)
 end
 
 gallery_main.item_to_border = function(index, item)
-    if index == gallery_main.selection then
+    if focus == 1 and index == gallery_main.selection then
         return 4, "AAAAAA"
     else
         return 0.5, "BBBBBB"
@@ -130,7 +134,9 @@ gallery_queue.item_to_border = function(index, item)
 end
 
 gallery_main.item_to_text = function(index, item)
-    if index == gallery_main.selection then return string.format("%s - %s [%d]", item.artist, item.album, item.year) end
+    if focus == 1 and index == gallery_main.selection then
+        return string.format("%s - %s [%d]", item.artist, item.album, item.year)
+    end
     return ""
 end
 
@@ -149,8 +155,9 @@ end
 function update_seekbar_geom(ww, wh)
     local g = seekbar_geometry
     g.position = { global_offset,  wh - 170 - global_offset }
-    g.size = { ww - 2 * global_offset, 170 }
-    local dist_h = 15
+    local dist_w = 10
+    local dist_h = 10
+    g.size = { ww - 2 * global_offset, 150 + dist_w * 2 }
 
     g.cover_size = { 150, 150 }
     g.cover_position = { g.position[1] + dist_h, g.position[2] + (g.size[2] - g.cover_size[2]) / 2 }
@@ -158,8 +165,8 @@ function update_seekbar_geom(ww, wh)
     local waveform_margin_y = 10
     g.text_position = { g.position[1] + g.cover_size[1] + 2 * dist_h, g.position[2] + waveform_margin_y}
 
-    g.waveform_position = { g.text_position[1], g.text_position[2] + 26 + 32 }
-    g.waveform_size = { g.size[1] - g.cover_size[1] - 3 * dist_h, g.size[2] - 2 * waveform_margin_y - 26 - 32 }
+    g.waveform_position = { g.text_position[1], g.text_position[2] + artist_album_text_size + title_text_size }
+    g.waveform_size = { g.size[1] - g.cover_size[1] - 3 * dist_h, g.size[2] - 2 * waveform_margin_y - (artist_album_text_size + title_text_size + time_text_size) }
 end
 
 function refresh_ass(ass)
@@ -281,17 +288,26 @@ function redraw_chapters()
     local x = g.waveform_position[1] + g.waveform_size[1]
     a:rect_cw(x - w, y1, x + w, y2)
     a:new_event()
-    a:pos(g.text_position[1], g.text_position[2] + (26 + 32) / 2 - 6)
+    a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
     a:append('{\\bord0}{\\an4}')
     local album = albums[playing_index]
-    --a:append(string.format("{\\fs32}%s", album.album))
-    a:append(string.format("{\\fs32}%s (%d)\\N{\\fs26}%s", album.album, album.year, album.artist))
+    local chap = mp.get_property_number("chapter")
+    local text
+    if chap and chap >= 0 then
+        local title = string.match(chapters[chap + 1].title, ".*/%d+ (.*)%..-")
+        text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d]", title_text_size, title, darker_text_color, chap + 1, #chapters)
+    else
+        text = " "
+    end
+    text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
+    a:append(text)
     seekbar_ass.chapters = a.text
     refresh_ass()
 end
 
 function redraw_elapsed()
-    if not length then
+    local pos = mp.get_property_number("time-pos")
+    if not length or not pos then
         seekbar_ass.elapsed = ""
         refresh_ass()
         return
@@ -308,33 +324,40 @@ function redraw_elapsed()
     local y1 = g.waveform_position[2]
     local y2 = y1 + g.waveform_size[2]
     local x1 = g.waveform_position[1]
-    local x2 = x1 + g.waveform_size[1] * (mp.get_property_number("time-pos", 0) / length)
+    local x2 = x1 + g.waveform_size[1] * (pos / length)
     a:rect_cw(x1, y1, x2, y2)
     a:draw_stop()
+    a:new_event()
+    a:pos(x2, y2)
+    a:append("{\\an8}{\\fs " .. time_text_size .. "}{\\bord0}")
+    local pos_readable = string.format("%02d:%02d", pos / 60, pos % 60)
+    a:append(string.format("%s", pos_readable))
     seekbar_ass.elapsed = a.text
     refresh_ass()
 end
 
-function gallery_main_activate(index)
+function gallery_main_activate()
     if playing_index == nil then
-        play(index)
+        play(gallery_main.selection)
     else
-        add_to_queue(index)
+        queue[#queue + 1] = gallery_main.selection
+        if #queue == 1 then
+            gallery_queue.pending.selection = 1
+        end
+        gallery_queue:items_changed()
     end
 end
 
-function gallery_queue_activate(index)
-    play(queue[index])
-    table.remove(queue, index)
+function gallery_queue_activate()
+    local sel = gallery_queue.selection
+    play(table.remove(queue, sel))
+    if sel > #queue then
+        gallery_queue.selection = #queue
+    end
     gallery_queue:items_changed()
 end
 
 function add_to_queue(index)
-    queue[#queue + 1] = index
-    if #queue == 1 then
-        gallery_queue.pending.selection = 1
-    end
-    gallery_queue:items_changed()
 end
 
 function play(index)
@@ -367,18 +390,16 @@ end
 
 mp.add_forced_key_binding("ENTER", "enter", function()
     if focus == 1 then
-        local sel = gallery_main.selection
-        if sel == 0 then return end
-        gallery_main_activate(sel)
+        gallery_main_activate()
     elseif focus == 2 then
-        local sel = gallery_queue.selection
-        if sel == 0 then return end
-        play(sel)
+        gallery_queue_activate()
     end
 end)
 
 local change_focus = function(new)
+    local old_focus = focus
     focus = (new - 1 + 3) % 3 + 1
+    if focus == old_focus then return end
     gallery_main.config.background_color = background_idle
     gallery_queue.config.background_color = background_idle
     if focus == 1 then
@@ -386,8 +407,11 @@ local change_focus = function(new)
     elseif focus == 2 then
         gallery_queue.config.background_color = background_focus
     end
+    if old_focus == 2 and #queue > 0 then
+        gallery_queue.pending.selection = 1
+    end
     redraw_seekbar_background()
-    gallery_main:ass_refresh(false, false, false, true)
+    gallery_main:ass_refresh(true, false, false, true)
     gallery_queue:ass_refresh(false, false, false, true)
 end
 
@@ -417,47 +441,90 @@ end
 local mouse_moved = false
 mp.register_idle(function()
     if not mouse_moved then return end
+    local x, y = mp.get_mouse_pos()
+    local f = element_from_pos(x, y)
+    if f then
+        change_focus(f)
+    end
     redraw_cursor_bar()
     mouse_moved = false
 end)
 
 mp.add_forced_key_binding("mouse_move", "mouse_move", function() mouse_moved=true end)
 
+mp.add_forced_key_binding("DEL", "del", function()
+    if focus == 2 then
+        local index = gallery_queue.selection
+        table.remove(queue, index)
+        if index > #queue then
+            gallery_queue.selection = #queue
+        end
+        gallery_queue:items_changed()
+    elseif focus == 3 then
+        if playing_index ~= nil then
+            mp.commandv("playlist-remove", "0")
+        end
+    end
+end)
+
 mp.add_forced_key_binding("MBTN_RIGHT", "rightclick", function()
-    -- TODO
+    local x, y = mp.get_mouse_pos()
+    local f = element_from_pos(x, y)
+    if f == 2 then
+        local index = gallery_queue:index_at(x, y)
+        if index then
+            if gallery_queue.selection == index then
+                table.remove(queue, index)
+                if index > #queue then
+                    gallery_queue.selection = #queue
+                end
+                gallery_queue:items_changed()
+            else
+                gallery_queue.pending.selection = index
+            end
+        end
+    elseif f == 3 then
+        if playing_index ~= nil then
+            local g = seekbar_geometry
+            x = x - g.cover_position[1]
+            y = y - g.cover_position[2]
+            if x >= 0 and x <= g.cover_size[1] and y >= 0 and y <= g.cover_size[2] then
+                mp.commandv("playlist-remove", "0")
+            end
+        end
+    end
 end)
 
 mp.add_forced_key_binding("MBTN_LEFT", "leftclick", function()
     local x, y = mp.get_mouse_pos()
     local f = element_from_pos(x, y)
-    if not f then return end
-    if focus == f then
-        if focus == 1 then
-            local index = gallery_main:index_at(x, y)
-            if index then
-                if gallery_main.selection == index then
-                    gallery_main_activate(index)
-                else
-                    gallery_main.pending.selection = index
-                end
-            end
-        elseif focus == 2 then
-            local index = gallery_queue:index_at(x, y)
-            if index then
-                if gallery_queue.selection == index then
-                    gallery_queue_activate(index)
-                else
-                    gallery_queue.pending.selection = index
-                end
-            end
-        elseif focus == 3 then
-            if playing_index ~= nil then
-                local g = seekbar_geometry
-                mp.set_property_number("time-pos", (x - g.waveform_position[1]) / g.waveform_size[1] * length)
+    if f == 1 then
+        local index = gallery_main:index_at(x, y)
+        if index then
+            if gallery_main.selection == index then
+                gallery_main_activate(index)
+            else
+                gallery_main.pending.selection = index
             end
         end
-    else
-        change_focus(f)
+    elseif f == 2 then
+        local index = gallery_queue:index_at(x, y)
+        if index then
+            if gallery_queue.selection == index then
+                gallery_queue_activate(index)
+            else
+                gallery_queue.pending.selection = index
+            end
+        end
+    elseif f == 3 then
+        if playing_index ~= nil then
+            local g = seekbar_geometry
+            x = x - g.waveform_position[1]
+            y = y - g.waveform_position[2]
+            if x >= 0 and x <= g.waveform_size[1] and y >= 0 and y <= g.waveform_size[2] then
+                mp.set_property_number("time-pos", x / g.waveform_size[1] * length)
+            end
+        end
     end
 end)
 
@@ -477,10 +544,7 @@ local move_current_gallery = function(leftright, updown, clamp)
 end
 
 function scroll(up)
-    local x, y = mp.get_mouse_pos()
-    local f = element_from_pos(x, y)
-    change_focus(f)
-    if f == 1 or f == 2 then
+    if focus == 1 or focus == 2 then
         move_current_gallery(0, up and -1 or 1, false)
     elseif f == 3 then
         mp.commandv("no-osd", "seek", up and "5" or "-5", "exact")
@@ -531,6 +595,10 @@ end)
 
 mp.observe_property("pause", "bool", function(_, val)
     paused = val
+end)
+
+mp.observe_property("chapter", "number", function()
+    redraw_chapters()
 end)
 
 mp.observe_property("seeking", "bool", function(_, val)
