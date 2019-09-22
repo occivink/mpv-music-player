@@ -389,20 +389,12 @@ function gallery_mt.ass_refresh(gallery, selection, scrollbar, placeholders, bac
     if scrollbar then gallery:refresh_scrollbar() end
     if placeholders then gallery:refresh_placeholders() end
     if background then gallery:refresh_background() end
-    local merge = function(a, b)
-        return b ~= "" and (a .. "\n" .. b) or a
-    end
-    gallery.ass_show(merge(
-            gallery.ass.background,
-            merge(
-                gallery.ass.placeholders,
-                merge(
-                    gallery.ass.selection,
-                    gallery.ass.scrollbar
-                )
-            )
-        )
-    )
+    gallery.ass_show(table.concat({
+        gallery.ass.background,
+        gallery.ass.placeholders,
+        gallery.ass.selection,
+        gallery.ass.scrollbar
+    }, "\n"))
 end
 
 function gallery_mt.idle_handler(gallery)
@@ -474,6 +466,10 @@ function gallery_mt.enough_space(gallery)
     if gallery.geometry.gallery_size[1] < gallery.geometry.thumbnail_size[1] + 2 * gallery.geometry.min_spacing[1] then return false end
     if gallery.geometry.gallery_size[2] < gallery.geometry.thumbnail_size[2] + 2 * gallery.geometry.min_spacing[2] then return false end
     return true
+end
+
+function gallery_mt.invoke_idle(gallery)
+    gallery:idle_handler()
 end
 
 function gallery_mt.activate(gallery, selection)
