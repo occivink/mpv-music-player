@@ -331,14 +331,11 @@ function redraw_chapters()
     a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
     a:append('{\\bord0\\an4}')
     local album = albums[playing_index]
-    local chap = mp.get_property_number("chapter")
-    local text
-    if chap and chap >= 0 then
-        local title = string.match(chapters[chap + 1].title, ".*/%d+ (.*)%..-")
-        text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d]", title_text_size, title, darker_text_color, chap + 1, #chapters)
-    else
-        text = string.format("{\\fs%d} ", title_text_size)
-    end
+    local chapnum = mp.get_property_number("chapter", 0) + 1
+    local chap = chapters[chapnum]
+    local title = string.match(chap.title, ".*/%d+ (.*)%..-")
+    local duration = chapnum == #chapters and length - chap.time or chapters[chapnum + 1].time - chap.time
+    local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chapnum, #chapters, mp.format_time(duration, "%m:%S"))
     text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
     a:append(text)
     ass.seekbar.chapters = a.text
@@ -539,7 +536,7 @@ mp.add_forced_key_binding("MBTN_LEFT", "leftclick", function()
             end
         end
     elseif f == 3 then
-        if playing_index ~= nil then
+        if playing_index and length then
             local g = seekbar_geometry
             x = x - g.waveform_position[1]
             y = y - g.waveform_position[2]
