@@ -7,6 +7,7 @@ local opts = {
     root_dir = "music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
+    albums_file = "albums", -- for optimization purposes
 }
 
 -- CONFIG
@@ -61,7 +62,7 @@ local ass = {
 local gallery_main = gallery_new()
 local gallery_queue = gallery_new()
 
-do
+if opts.albums_file == "" then
     local artists = utils.readdir(opts.root_dir)
     table.sort(artists)
     for _, artist in ipairs(artists) do
@@ -74,15 +75,35 @@ do
                     artist = string.gsub(artist, '\\', '/'),
                     album = string.gsub(album, '\\', '/'),
                     year = year,
-                    dir= string.format("%s/%s/%s", opts.root_dir, artist, yearalbum)
+                    dir = string.format("%s/%s/%s", opts.root_dir, artist, yearalbum)
                 }
             end
         end
     end
-    if #albums == 0 then
-        msg.warn("No albums, exiting")
-        return
+else
+    local f = io.open(opts.albums_file, "r")
+    while true do
+        local line = f:read()
+        if not line then break end
+        local artist, album, year = string.match(line, "^(.-) %- (.-) %[(%d+)]$")
+        if artist and album and year then
+            albums[#albums + 1] = {
+                artist = artist,
+                album = album,
+                year = year,
+                dir = string.format("%s/%s/%s - %s", opts.root_dir,
+                    string.gsub(artist, '/', '\\'),
+                    year,
+                    string.gsub(album, '/', '\\'))
+            }
+        else
+            msg.error("Invalid line in albums file: " .. line)
+        end
     end
+end
+if #albums == 0 then
+    msg.warn("No albums, exiting")
+    return
 end
 
 local seekbar_overlay_index = 0
@@ -394,14 +415,15 @@ function add_to_queue(index)
 end
 
 function play(index)
-    playing_index = index
     local item = albums[index]
     local files = utils.readdir(item.dir)
+    if not files then return end
     table.sort(files)
     for i, file in ipairs(files) do
         file = item.dir .. "/" .. file
         files[i] = string.format("%%%i%%%s", string.len(file), file)
     end
+    playing_index = index
     mp.commandv("loadfile", "edl://" .. table.concat(files, ';'))
     mp.set_property_bool("pause", false)
     mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, item.year, string.gsub(item.album, ':', '\\:')))
