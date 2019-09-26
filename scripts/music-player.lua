@@ -270,32 +270,66 @@ function redraw_seekbar_times()
             return mp.format_time(time, "%M:%S")
         end
     end
+    local time_width = 65
+    local snap_within = 20
 
-    local pos = mp.get_property_number("time-pos")
-    local a = assdraw.ass_new()
-    a:new_event()
     local g = seekbar_geometry
-    local y = g.waveform_position[2] + g.waveform_size[2]
-    if pos then
-        local x = g.waveform_position[1] + g.waveform_size[1] * (pos / length)
-        a:pos(x, y)
-        a:append("{\\an8\\fs " .. time_text_size .. "\\bord0}")
-        a:append(format_time(pos))
-    end
-    a:new_event()
-    a:append("{\\an9\\fs " .. time_text_size .. "\\bord0}")
-    a:pos(g.waveform_position[1] + g.waveform_size[1], y)
-    a:append(format_time(length))
-
-    local mx, my = mp.get_mouse_pos()
-    local tx = mx - g.waveform_position[1]
-    local ty = my - g.waveform_position[2]
-    if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
+    local seekbar_bottom = g.waveform_position[2] + g.waveform_size[2]
+    local a = assdraw.ass_new()
+    local show_time_at = function(x)
+        if not x then return end
+        local time = (x - g.waveform_position[1]) / g.waveform_size[1] * length
+        local align = "8"
+        if math.abs(x - g.waveform_position[1]) < (time_width / 2) then
+            align = "7"
+            x = g.waveform_position[1]
+        elseif math.abs(x - (g.waveform_position[1] + g.waveform_size[1])) < (time_width / 2) then
+            align = "9"
+            x = g.waveform_position[1] + g.waveform_size[1]
+        end
         a:new_event()
-        a:append("{\\an8\\fs " .. time_text_size .. "\\bord0}")
-        a:pos(mx, y)
-        a:append(format_time(tx / g.waveform_size[1] * length))
+        a:pos(x, seekbar_bottom)
+        a:append(string.format("{\\an%s\\fs%s\\bord0}", align, time_text_size))
+        a:append(format_time(time))
     end
+
+    local cursor_x = nil
+    local end_x = g.waveform_position[1] + g.waveform_size[1]
+    local current_x = nil
+
+    do
+        local mx, my = mp.get_mouse_pos()
+        local tx = mx - g.waveform_position[1]
+        local ty = my - g.waveform_position[2]
+        if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
+            cursor_x = mx
+            for _, chap in ipairs(chapters) do
+                local chap_x = g.waveform_position[1] + chap.time / length * g.waveform_size[1]
+                if math.abs(chap_x - cursor_x) < snap_within then
+                    cursor_x = chap_x
+                end
+            end
+        end
+    end
+    local pos = mp.get_property_number("time-pos")
+    if pos and length then
+        current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / length)
+    end
+
+    -- cursor > current > end
+    if cursor_x and current_x and math.abs(cursor_x - current_x) < time_width then
+        current_x = nil
+    end
+    if cursor_x and end_x and math.abs(cursor_x - end_x) < time_width then
+        end_x = nil
+    end
+    if current_x and end_x and math.abs(current_x - end_x) < time_width then
+        end_x = nil
+    end
+
+    show_time_at(current_x)
+    show_time_at(end_x)
+    show_time_at(cursor_x)
 
     ass.seekbar.times = a.text
     ass.changed = true
