@@ -385,12 +385,13 @@ function redraw_chapters()
     a:new_event()
     a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
     a:append('{\\bord0\\an4}')
-    local album = albums[playing_index]
     local chapnum = mp.get_property_number("chapter", 0) + 1
+    if chapnum <= 0 then chapnum = 1 end
     local chap = chapters[chapnum]
     local title = string.match(chap.title, ".*/%d+ (.*)%..-")
     local duration = chapnum == #chapters and length - chap.time or chapters[chapnum + 1].time - chap.time
     local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chapnum, #chapters, mp.format_time(duration, "%m:%S"))
+    local album = albums[playing_index]
     text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
     a:append(text)
     ass.seekbar.chapters = a.text
