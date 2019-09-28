@@ -4,10 +4,10 @@ local msg = require 'mp.msg'
 local gallery = require 'lib/gallery'
 
 local opts = {
-    root_dir = "/mnt/moccasin/music",
+    root_dir = "music",
     thumbs_dir = "thumbs",
-    waveforms_dir = "/mnt/moccasin/waveform",
-    albums_file = "albums", -- for optimization purposes
+    waveforms_dir = "waveform",
+    albums_file = "", -- for optimization purposes
 }
 
 -- CONFIG
@@ -78,6 +78,10 @@ end
 if #albums == 0 then
     msg.warn("No albums, exiting")
     return
+end
+
+function normalized_coordinates(coord, position, size)
+    return (coord[1] - position[1]) / size[1], (coord[2] - position[2]) / size[2]
 end
 
 local queue_component = {}
@@ -485,13 +489,16 @@ do
             mp.observe_property("chapter", nil, function()
                 redraw_chapters()
             end)
+            mp.register_event("seek", function()
+                redraw_times()
+                redraw_elapsed()
+            end)
             mp.register_event("file-loaded", function()
                 this.duration = mp.get_property_number("duration")
                 this.chapters = mp.get_property_native("chapter-list")
                 redraw_chapters()
             end)
             mp.register_event("idle", function()
-                print("idle")
                 mp.commandv("overlay-remove", seekbar_overlay_index)
                 mp.set_property("external-files", "")
                 this.duration = nil
@@ -550,11 +557,27 @@ do
         -- seeking and stuff
         LEFT = function() end,
         RIGHT = function() end,
-        UP = function() end,
-        DOWN = function() end,
+        PGUP = function() mp.command("no-osd add chapter 1") end,
+        PGDWN = function() mp.command("no-osd add chapter -1") end,
+        MBTN_RIGHT = function()
+            local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
+            if x < 0 or y < 0 or x > 1 or y > 1 then return end
+            mp.commandv("playlist-remove", 0)
+        end,
+        MBTN_LEFT = function()
+            if not this.duration then return end
+            local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
+            if x < 0 or y < 0 or x > 1 or y > 1 then return end
+            mp.set_property_number("time-pos", x * this.duration)
+        end,
     }
-    -- TODO move cursor
-    this.mouse_move = function(mx, my) end
+    this.mouse_move = function(mx, my)
+        if not playing_index then return end
+        local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
+        if x < 0 or y < 0 or x > 1 or y > 1 then return end
+        redraw_times()
+        -- FIXME maybe? the times are not erased when the cursor leaves the
+    end
 
     this.idle = function() end
 end
@@ -688,11 +711,8 @@ mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
 
 function component_from_pos(x, y)
     for _, comp in ipairs(active_components) do
-        local px, py = comp.position()
-        local tx = x - px
-        local ty = y - py
-        local sx, sy = comp.size()
-        if tx >= 0 and ty >= 0 and tx <= sx and ty <= sy then
+        local nx, ny = normalized_coordinates({x, y}, {comp.position()}, {comp.size()})
+        if nx >= 0 and ny >= 0 and nx <= 1 and ny <= 1 then
             return comp
         end
     end
@@ -732,12 +752,15 @@ mp.register_idle(function()
         mouse_moved = false
         local x, y = mp.get_mouse_pos()
         local comp = component_from_pos(x, y)
-        if comp and comp ~= focused_component then
-            if focused_component then
-                focused_component.set_focus(false)
+        if comp then
+            if comp ~= focused_component then
+                if focused_component then
+                    focused_component.set_focus(false)
+                end
+                focused_component = comp
+                focused_component.set_focus(true)
             end
-            focused_component = comp
-            focused_component.set_focus(true)
+            comp.mouse_move(x, y)
         end
     end
     if ass_changed then
