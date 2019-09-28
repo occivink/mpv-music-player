@@ -246,15 +246,17 @@ do
 
     this.pending_selection = nil
 
+    local function increase_pending(inc)
+        this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
+    end
+
     this.keys = {
-        LEFT = function()
-            this.pending_selection = this.pending_selection and this.pending_selection - 1 or this.gallery.selection - 1
-        end,
-        RIGHT = function()
-            this.pending_selection = this.pending_selection and this.pending_selection + 1 or this.gallery.selection + 1
-        end,
-        UP = function() end,
-        DOWN = function() end,
+        LEFT = function() increase_pending(1) end,
+        RIGHT = function() increase_pending(-1) end,
+        UP = function() increase_pending(-this.gallery.geometry.columns) end,
+        DOWN = function() increase_pending(this.gallery.geometry.columns) end,
+        WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
+        WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         -- TODO it's not so nice that this component knows about the queue
         ENTER = function()
             if playing_index == nil then
@@ -265,6 +267,13 @@ do
                 if #queue == 1 then
                     queue_component.gallery:set_selection(1)
                 end
+            end
+        end,
+        MBTN_LEFT = function()
+            local mx, my = mp.get_mouse_pos()
+            local index = this.gallery:index_at(mx, my)
+            if index then
+                this.gallery:set_selection(index)
             end
         end,
     }
@@ -298,7 +307,7 @@ do
         chapters = "",
         text = "",
     }
-    this.active = false
+    this.is_active = false
     this.duration = nil
     this.chapters = nil
 
@@ -465,7 +474,7 @@ do
     timer:kill()
 
     this.set_active = function(active)
-        this.active = active
+        this.is_active = active
         if active then
             mp.register_event("start-file", function()
                 local album = albums[playing_index]
@@ -513,7 +522,7 @@ do
             timer:kill()
         end
     end
-    this.active = function() return this.active end
+    this.active = function() return this.is_active end
     this.set_focus = function(focus)
         refresh_background(focus and background_focus or background_idle)
     end
@@ -534,6 +543,11 @@ do
         g.times_position = { g.text_position[1], g.waveform_position[2] + g.waveform_size[2] }
 
         set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
+        if this.is_active then
+            redraw_elapsed()
+            redraw_times()
+            redraw_chapters()
+        end
     end
 
     this.position = function()
