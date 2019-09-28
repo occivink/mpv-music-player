@@ -26,7 +26,7 @@ function gallery_new()
             active = {}, -- array of <=64 strings indicating the file associated to the current overlay (false if nothing)
             missing = {}, -- associative array of thumbnail path to view index it should be shown at
         },
-        selection = 0,
+        selection = nil,
         config = {
             background_color = '333333',
             background_opacity = '33',
@@ -460,6 +460,9 @@ function gallery_mt.activate(gallery)
         return false
     end
     gallery.active = true
+    if not gallery.selection then
+        gallery.selection = 1
+    end
     gallery:compute_internal_geometry()
     gallery:ensure_view_valid()
     gallery:refresh_overlays(false)

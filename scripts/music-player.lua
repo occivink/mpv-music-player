@@ -251,12 +251,14 @@ do
     end
 
     this.keys = {
-        LEFT = function() increase_pending(1) end,
-        RIGHT = function() increase_pending(-1) end,
+        LEFT = function() increase_pending(-1) end,
+        RIGHT = function() increase_pending(1) end,
         UP = function() increase_pending(-this.gallery.geometry.columns) end,
         DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
+        HOME = function() this.pending_selection = 1 end,
+        END = function() this.pending_selection = #albums end,
         -- TODO it's not so nice that this component knows about the queue
         ENTER = function()
             if playing_index == nil then
