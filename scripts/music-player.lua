@@ -4,9 +4,9 @@ local msg = require 'mp.msg'
 local gallery = require 'lib/gallery'
 
 local opts = {
-    root_dir = "music",
+    root_dir = "/mnt/moccasin/music",
     thumbs_dir = "thumbs",
-    waveforms_dir = "waveform",
+    waveforms_dir = "/mnt/moccasin/waveform",
     albums_file = "albums", -- for optimization purposes
 }
 
@@ -26,41 +26,15 @@ local time_text_size=24
 local darker_text_color="888888"
 
 -- VARS
-local focus = nil -- 0,1,2,3 is respectively none, gallery_main, gallery_queue, seekbar
+local focus = nil -- 0,1,2,3 is respectively none, gallery_main/lyrics, gallery_queue, seekbar
+local ass_changed = false
 
-local seekbar_geometry = {
-    position = {0,0},
-    size = {0,0},
-    waveform_position = {0,0},
-    waveform_size = {0,0},
-    cover_position = {0,0},
-    cover_size = {0,0},
-    text_position = {0,0},
-}
+local seekbar_overlay_index = 0
 
 local playing_index = nil
-local length = nil
-local chapters = nil
-local paused = false
 
 local albums = {}
 local queue = {}
-
-local ass = {
-    queue = "",
-    main = "",
-    seekbar = {
-        background = "",
-        chapters = "",
-        elapsed = "",
-        cursor_bar = "",
-        times = "",
-    },
-    changed = false,
-}
-
-local gallery_main = gallery_new()
-local gallery_queue = gallery_new()
 
 if opts.albums_file == "" then
     local artists = utils.readdir(opts.root_dir)
@@ -106,112 +80,518 @@ if #albums == 0 then
     return
 end
 
-local seekbar_overlay_index = 0
+local queue_component = {}
+do
+    local this = queue_component
+    this.gallery = gallery_new()
 
-gallery_main.items = albums
-gallery_main.config.always_show_placeholders = false
-gallery_main.config.align_text = true
-gallery_main.config.max_thumbnails = 48
-gallery_main.config.overlay_range = 1
-gallery_main.config.background_opacity = background_opacity
-gallery_main.geometry.min_spacing = {15,30}
-gallery_main.geometry.thumbnail_size = {150,150}
+    this.gallery.items = queue
+    this.gallery.config.always_show_placeholders = false
+    this.gallery.config.align_text = false
+    this.gallery.config.max_thumbnails = 16
+    this.gallery.config.overlay_range = 49
+    this.gallery.config.background_color = background_idle
+    this.gallery.config.background_opacity = background_opacity
+    this.gallery.geometry.min_spacing = {15,30}
+    this.gallery.geometry.thumbnail_size = {150,150}
 
-gallery_queue.items = queue
-gallery_queue.config.always_show_placeholders = false
-gallery_queue.config.align_text = false
-gallery_queue.config.max_thumbnails = 16
-gallery_queue.config.overlay_range = 49
-gallery_queue.config.background_opacity = background_opacity
-gallery_queue.geometry.min_spacing = {0,10}
-gallery_queue.geometry.thumbnail_size = {150,150}
-
-gallery_main.item_to_overlay_path = function(index, item)
-    return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
-        item.artist, item.album,
-        gallery_main.geometry.thumbnail_size[1],
-        gallery_main.geometry.thumbnail_size[2]
-    )
-end
-gallery_queue.item_to_overlay_path = function(index, item)
-    local album = albums[item]
-    return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
-        album.artist, album.album,
-        gallery_queue.geometry.thumbnail_size[1],
-        gallery_queue.geometry.thumbnail_size[2]
-    )
-end
-
-gallery_main.item_to_border = function(index, item)
-    if focus == 1 and index == gallery_main.selection then
-        return 4, "AAAAAA"
-    else
-        return 0.5, "BBBBBB"
+    this.gallery.item_to_overlay_path = function(index, item)
+        local album = albums[item]
+        return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+            album.artist, album.album,
+            this.gallery.geometry.thumbnail_size[1],
+            this.gallery.geometry.thumbnail_size[2]
+        )
     end
-end
-
-gallery_queue.item_to_border = function(index, item)
-    if index == gallery_queue.selection then
-        return 3, "AAAAAA"
-    else
+    this.gallery.item_to_border = function(index, item)
+        if index == this.gallery.selection then
+            return 3, "AAAAAA"
+        end
         return 1, "BBBBBB"
     end
-end
-
-gallery_main.item_to_text = function(index, item)
-    if focus == 1 and index == gallery_main.selection then
-        return string.format("%s - %s [%d]", item.artist, item.album, item.year)
+    this.gallery.item_to_text = function(index, item)
+        return ""
     end
-    return ""
+    this.ass_text = ""
+    this.gallery.ass_show = function(ass)
+        this.ass_text = ass
+        ass_changed = true
+    end
+
+    this.set_active = function(active)
+        if active then
+            this.gallery:activate();
+        else
+            this.gallery:deactivate();
+        end
+    end
+    this.active = function() return gallery.active end
+    this.set_focus = function(focus)
+        this.gallery.config.background_color = focus and background_focus or background_idle
+        this.gallery:ass_refresh(false, false, false, true)
+    end
+    this.set_geometry = function(x, y, w, h)
+        this.gallery:set_geometry(x, y, w, h)
+    end
+    this.position = function()
+        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
+    end
+    this.size = function()
+        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
+    end
+    this.ass = function()
+        return this.ass_text
+    end
+
+    this.pending_selection = nil
+
+    this.keys = {
+        LEFT = function()
+            this.pending_selection = this.pending_selection and this.pending_selection - 1 or this.gallery.selection - 1
+        end,
+        RIGHT = function()
+            this.pending_selection = this.pending_selection and this.pending_selection + 1 or this.gallery.selection + 1
+        end,
+        UP = function() end,
+        DOWN = function() end,
+        ENTER = function()
+            if #queue > 0 then
+                play(table.remove(queue, this.gallery.selection))
+                if this.gallery.selection > #queue then
+                    this.gallery:set_selection(this.gallery.selection - 1)
+                end
+                this.gallery:items_changed()
+            end
+        end,
+    }
+    this.mouse_move = function(mx, my) end
+
+    this.idle = function()
+        if this.pending_selection then
+            this.gallery:set_selection(this.pending_selection)
+            this.pending_selection = nil
+        end
+    end
 end
 
-gallery_queue.item_to_text = function(index, item)
-    return ""
+local albums_component = {}
+do
+    local this = albums_component -- mfw oop
+
+    this.gallery = gallery_new()
+
+    this.gallery.items = albums
+    this.gallery.config.always_show_placeholders = false
+    this.gallery.config.align_text = true
+    this.gallery.config.max_thumbnails = 48
+    this.gallery.config.overlay_range = 1
+    this.gallery.config.background_color = background_idle
+    this.gallery.config.background_opacity = background_opacity
+    this.gallery.geometry.min_spacing = {15,30}
+    this.gallery.geometry.thumbnail_size = {150,150}
+
+    this.gallery.item_to_overlay_path = function(index, item)
+        return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+            item.artist, item.album,
+            this.gallery.geometry.thumbnail_size[1],
+            this.gallery.geometry.thumbnail_size[2]
+        )
+    end
+    this.gallery.item_to_border = function(index, item)
+        if index == this.gallery.selection then
+            return 4, "AAAAAA"
+        end
+        return 0.8, "BBBBBB"
+    end
+    this.gallery.item_to_text = function(index, item)
+        if index == this.gallery.selection then
+            return string.format("%s - %s [%d]", item.artist, item.album, item.year)
+        end
+        return ""
+    end
+    this.ass_text = ""
+    this.gallery.ass_show = function(ass)
+        this.ass_text = ass
+        ass_changed = true
+    end
+
+    this.set_active = function(active)
+        if active then
+            this.gallery:activate();
+        else
+            this.gallery:deactivate();
+        end
+    end
+    this.active = function() return gallery.active end
+    this.set_focus = function(focus)
+        this.gallery.config.background_color = focus and background_focus or background_idle
+        this.gallery:ass_refresh(false, false, false, true)
+    end
+    this.set_geometry = function(x, y, w, h)
+        this.gallery:set_geometry(x, y, w, h)
+    end
+    this.position = function()
+        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
+    end
+    this.size = function()
+        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
+    end
+    this.ass = function()
+        return this.ass_text
+    end
+
+    this.pending_selection = nil
+
+    this.keys = {
+        LEFT = function()
+            this.pending_selection = this.pending_selection and this.pending_selection - 1 or this.gallery.selection - 1
+        end,
+        RIGHT = function()
+            this.pending_selection = this.pending_selection and this.pending_selection + 1 or this.gallery.selection + 1
+        end,
+        UP = function() end,
+        DOWN = function() end,
+        -- TODO it's not so nice that this component knows about the queue
+        ENTER = function()
+            if playing_index == nil then
+                play(this.gallery.selection)
+            else
+                queue[#queue + 1] = this.gallery.selection
+                queue_component.gallery:items_changed()
+                if #queue == 1 then
+                    queue_component.gallery:set_selection(1)
+                end
+            end
+        end,
+    }
+    this.mouse_move = function(mx, my) end
+
+    this.idle = function()
+        if this.pending_selection then
+            this.gallery:set_selection(this.pending_selection)
+            this.pending_selection = nil
+        end
+    end
 end
 
-gallery_main.set_geometry_props = function(ww, wh)
-    gallery_main.geometry.gallery_position = {global_offset, global_offset}
-    gallery_main.geometry.gallery_size = {ww - 180 - global_offset * 3, wh - 170 - global_offset * 3}
-end
-gallery_queue.set_geometry_props = function(ww, wh)
-    gallery_queue.geometry.gallery_position = {ww - 180 - global_offset, global_offset}
-    gallery_queue.geometry.gallery_size = {180, wh - 170 - global_offset * 3}
-end
-function update_seekbar_geom(ww, wh)
-    local g = seekbar_geometry
-    g.position = { global_offset,  wh - 170 - global_offset }
-    local dist_w = 10
-    local dist_h = 10
-    g.size = { ww - 2 * global_offset, 150 + dist_w * 2 }
+local now_playing_component = {}
+do
+    local this = now_playing_component
+    this.geometry = {
+        position = {0,0},
+        size = {0,0},
+        waveform_position = {0,0},
+        waveform_size = {0,0},
+        cover_position = {0,0},
+        cover_size = {0,0},
+        text_position = {0,0},
+        times_position = {0, 0},
+    }
+    this.ass_text = {
+        background = "",
+        elapsed = "",
+        times = "",
+        chapters = "",
+        text = "",
+    }
+    this.active = false
+    this.duration = nil
+    this.chapters = nil
 
-    g.cover_size = { 150, 150 }
-    g.cover_position = { g.position[1] + dist_h, g.position[2] + (g.size[2] - g.cover_size[2]) / 2 }
+    local function redraw_chapters()
+        if not this.chapters then
+            this.ass_text.chapters = ""
+            ass_changed = true
+            return
+        end
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:pos(0, 0)
+        a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
+        a:draw_start()
+        local w = chapters_marker_width/2
+        local g = this.geometry
+        local y1 = g.waveform_position[2]
+        local y2 = y1 + g.waveform_size[2]
+        for _, chap in ipairs(this.chapters) do
+            local x = g.waveform_position[1] + g.waveform_size[1] * (chap.time / this.duration)
+            a:rect_cw(x - w, y1, x + w, y2)
+        end
+        local x = g.waveform_position[1] + g.waveform_size[1]
+        a:rect_cw(x - w, y1, x + w, y2)
+        a:new_event()
+        a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
+        a:append('{\\bord0\\an4}')
+        local chapnum = mp.get_property_number("chapter", 0) + 1
+        if chapnum <= 0 then chapnum = 1 end
+        local chap = this.chapters[chapnum]
+        local title = string.match(chap.title, ".*/%d+ (.*)%..-")
+        local duration = chapnum == #this.chapters and this.duration - chap.time or this.chapters[chapnum + 1].time - chap.time
+        local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chapnum, #this.chapters, mp.format_time(duration, "%m:%S"))
+        local album = albums[playing_index]
+        text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
+        a:append(text)
+        this.ass_text.chapters = a.text
+        ass_changed = true
+    end
 
-    local waveform_margin_y = 10
-    g.text_position = { g.position[1] + g.cover_size[1] + 2 * dist_h, g.position[2] + waveform_margin_y}
+    local function redraw_times()
+        if not playing_index or not this.duration then
+            if this.ass_text.times ~= "" then
+                this.ass_text.times = ""
+                ass_changed = true
+            end
+            return
+        end
 
-    g.waveform_position = { g.text_position[1], g.text_position[2] + artist_album_text_size + title_text_size }
-    g.waveform_size = { g.size[1] - g.cover_size[1] - 3 * dist_h, g.size[2] - 2 * waveform_margin_y - (artist_album_text_size + title_text_size + time_text_size) }
+        local format_time = function(time)
+            if time > 60 * 60 then
+                return mp.format_time(time, "%h:%M:%S")
+            else
+                return mp.format_time(time, "%M:%S")
+            end
+        end
+        local time_width = 65
+        local snap_within = 20
+
+        local g = this.geometry
+        local a = assdraw.ass_new()
+        local show_time_at = function(x)
+            if not x then return end
+            local time = (x - g.waveform_position[1]) / g.waveform_size[1] * this.duration
+            local align = "8"
+            if math.abs(x - g.waveform_position[1]) < (time_width / 2) then
+                align = "7"
+                x = g.waveform_position[1]
+            elseif math.abs(x - (g.waveform_position[1] + g.waveform_size[1])) < (time_width / 2) then
+                align = "9"
+                x = g.waveform_position[1] + g.waveform_size[1]
+            end
+            a:new_event()
+            a:pos(x, g.times_position[2])
+            a:append(string.format("{\\an%s\\fs%s\\bord0}", align, time_text_size))
+            a:append(format_time(time))
+        end
+
+        local cursor_x = nil
+        local end_x = g.waveform_position[1] + g.waveform_size[1]
+        local current_x = nil
+
+        do
+            local mx, my = mp.get_mouse_pos()
+            local tx = mx - g.waveform_position[1]
+            local ty = my - g.waveform_position[2]
+            if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
+                cursor_x = mx
+                for _, chap in ipairs(this.chapters) do
+                    local chap_x = g.waveform_position[1] + chap.time / this.duration * g.waveform_size[1]
+                    if math.abs(chap_x - cursor_x) < snap_within then
+                        cursor_x = chap_x
+                    end
+                end
+            end
+        end
+        local pos = mp.get_property_number("time-pos")
+        if pos and this.duration then
+            current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / this.duration)
+        end
+
+        -- cursor > current > end
+        if cursor_x and current_x and math.abs(cursor_x - current_x) < time_width then
+            current_x = nil
+        end
+        if cursor_x and end_x and math.abs(cursor_x - end_x) < time_width then
+            end_x = nil
+        end
+        if current_x and end_x and math.abs(current_x - end_x) < time_width then
+            end_x = nil
+        end
+
+        show_time_at(current_x)
+        show_time_at(end_x)
+        show_time_at(cursor_x)
+
+        this.ass_text.times = a.text
+        ass_changed = true
+    end
+
+    local function redraw_elapsed()
+        local pos = mp.get_property_number("time-pos")
+        if not this.duration or not pos then
+            if this.ass_text.elapsed ~= "" then
+                this.ass_text.elapsed = ""
+                ass_changed = true
+            end
+            return
+        end
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1c&%s\\1a&%s}', "222222", "AA"))
+        a:pos(0,0)
+        a:draw_start()
+        local y1 = this.geometry.waveform_position[2]
+        local y2 = y1 + this.geometry.waveform_size[2]
+        local x1 = this.geometry.waveform_position[1]
+        local x2 = x1 + this.geometry.waveform_size[1] * (pos / this.duration)
+        a:rect_cw(x1, y1, x2, y2)
+        this.ass_text.elapsed = a.text
+        ass_changed = true
+    end
+
+    local function refresh_background(color)
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
+        a:pos(0, 0)
+        --a:append('{\\iclip(4,')
+        --local ww, wh = mp.get_osd_size()
+        --a:rect_cw(seekbar_position[1] + 30, seekbar_position[2] + 30, seekbar_position[1] + seekbar_size[1] - 30, seekbar_position[2] + seekbar_size[2] - 30)
+        --a:append(')}')
+        a:draw_start()
+        local g = this.geometry
+        a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
+        this.ass_text.background = a.text
+        ass_changed = true
+    end
+
+    local timer = mp.add_periodic_timer(0.5, function()
+        redraw_elapsed()
+        redraw_times()
+    end)
+    timer:kill()
+
+    this.set_active = function(active)
+        this.active = active
+        if active then
+            mp.register_event("start-file", function()
+                local album = albums[playing_index]
+                mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:')))
+                mp.set_property("vid", "1")
+                mp.commandv("overlay-add",
+                    seekbar_overlay_index,
+                    tostring(math.floor(this.geometry.cover_position[1] + 0.5)),
+                    tostring(math.floor(this.geometry.cover_position[2] + 0.5)),
+                    string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+                        album.artist, album.album,
+                        this.geometry.cover_size[1],
+                        this.geometry.cover_size[2]),
+                    "0",
+                    "bgra",
+                    tostring(this.geometry.cover_size[1]),
+                    tostring(this.geometry.cover_size[2]),
+                    tostring(4*this.geometry.cover_size[1]))
+
+            end)
+            mp.observe_property("chapter", nil, function()
+                redraw_chapters()
+            end)
+            mp.register_event("file-loaded", function()
+                this.duration = mp.get_property_number("duration")
+                this.chapters = mp.get_property_native("chapter-list")
+                redraw_chapters()
+            end)
+            mp.register_event("idle", function()
+                print("idle")
+                mp.commandv("overlay-remove", seekbar_overlay_index)
+                mp.set_property("external-files", "")
+                this.duration = nil
+                this.chapters = nil
+                redraw_elapsed()
+                redraw_times()
+                redraw_chapters()
+            end)
+            timer:resume()
+            refresh_background(background_idle)
+        else
+            timer:kill()
+        end
+    end
+    this.active = function() return this.active end
+    this.set_focus = function(focus)
+        refresh_background(focus and background_focus or background_idle)
+    end
+    this.set_geometry = function(x, y, w, h)
+        local g = this.geometry
+        g.position = { x, y }
+        g.size = { w, h }
+        g.cover_size = { 150, 150 }
+
+        local dist_w = 10
+        g.cover_position = { x + dist_w, y + (h - g.cover_size[2]) / 2 }
+
+        local dist_h = 10
+        g.text_position = { x + g.cover_size[1] + 2 * dist_w, y + dist_h}
+
+        g.waveform_position = { g.text_position[1], g.text_position[2] + artist_album_text_size + title_text_size }
+        g.waveform_size = { w - g.cover_size[1] - 3 * dist_w, h - 2 * dist_h - (artist_album_text_size + title_text_size + time_text_size) }
+        g.times_position = { g.text_position[1], g.waveform_position[2] + g.waveform_size[2] }
+
+        set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
+    end
+
+    this.position = function()
+        return this.geometry.position[1], this.geometry.position[2]
+    end
+    this.size = function()
+        return this.geometry.size[1], this.geometry.size[2]
+    end
+    this.ass = function()
+        return table.concat({
+            this.ass_text.background,
+            this.ass_text.elapsed,
+            this.ass_text.times,
+            this.ass_text.chapters,
+            this.ass_text.text,
+        }, "\n")
+    end
+
+    this.keys = {
+        -- TODO
+        -- seeking and stuff
+        LEFT = function() end,
+        RIGHT = function() end,
+        UP = function() end,
+        DOWN = function() end,
+    }
+    -- TODO move cursor
+    this.mouse_move = function(mx, my) end
+
+    this.idle = function() end
 end
 
-gallery_main.ass_show = function(gallery_ass)
-    ass.main = gallery_ass
-    ass.changed = true
-end
-gallery_main.ass_hide = function()
-    ass.main = ""
-    ass.changed = true
-end
-gallery_queue.ass_show = function(gallery_ass)
-    ass.queue = gallery_ass
-    ass.changed = true
-end
-gallery_queue.ass_hide = function()
-    ass.queue = ""
-    ass.changed = true
+local lyrics_component = {}
+do
+    local this = lyrics_component
+
+    this.set_active = function(active)
+    end
+    this.active = function()
+        return false
+    end
+    this.set_focus = function(focus)
+    end
+    this.set_geometry = function(x, y, w, h)
+    end
+    this.position = function()
+        return 0, 0
+    end
+    this.size = function()
+        return 0, 0
+    end
+    this.ass = function()
+        return ""
+    end
+    this.keys = {
+        UP = function() end,
+        DOWN = function() end,
+    }
+    this.mouse_move = function(mx, my) end
+
+    this.idle = function() end
 end
 
-function set_video_position(ww, wh, x, y, w, h)
+function set_video_position(x, y, w, h)
+    local ww, wh = mp.get_osd_size()
     local ratio = w / h
     local zoom = math.log(w / ww) / math.log(2)
     local dist_y = y - (wh - h) / 2
@@ -234,492 +614,69 @@ function set_video_position(ww, wh, x, y, w, h)
     --end
 end
 
-function redraw_seekbar_background()
-    local a = assdraw.ass_new()
-    a:new_event()
-    a:append('{\\bord0}')
-    a:append('{\\shad0}')
-    a:append('{\\1c&' .. (focus == 3 and background_focus or background_idle) .. '}')
-    a:append('{\\1a&' .. "BB" .. '}')
-    a:pos(0, 0)
-    --a:append('{\\iclip(4,')
-    --local ww, wh = mp.get_osd_size()
-    --a:rect_cw(seekbar_position[1] + 30, seekbar_position[2] + 30, seekbar_position[1] + seekbar_size[1] - 30, seekbar_position[2] + seekbar_size[2] - 30)
-    --a:append(')}')
-    a:draw_start()
-    a:move_to(0,0)
-    local g = seekbar_geometry
-    a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
-    ass.seekbar.background = a.text
-    ass.changed = true
-end
+local components = {
+    albums_component,
+    queue_component,
+    now_playing_component,
+    lyrics_component,
+}
+local active_components = {
+    albums_component,
+    queue_component,
+    now_playing_component,
+}
+local focused_component = nil
 
-function redraw_seekbar_times()
-    if not playing_index or not length then
-        if ass.seekbar.times ~= "" then
-            ass.seekbar.times = ""
-            ass.changed = true
-        end
-        return
-    end
-
-    local format_time = function(time)
-        if time > 60 * 60 then
-            return mp.format_time(time, "%h:%M:%S")
-        else
-            return mp.format_time(time, "%M:%S")
-        end
-    end
-    local time_width = 65
-    local snap_within = 20
-
-    local g = seekbar_geometry
-    local seekbar_bottom = g.waveform_position[2] + g.waveform_size[2]
-    local a = assdraw.ass_new()
-    local show_time_at = function(x)
-        if not x then return end
-        local time = (x - g.waveform_position[1]) / g.waveform_size[1] * length
-        local align = "8"
-        if math.abs(x - g.waveform_position[1]) < (time_width / 2) then
-            align = "7"
-            x = g.waveform_position[1]
-        elseif math.abs(x - (g.waveform_position[1] + g.waveform_size[1])) < (time_width / 2) then
-            align = "9"
-            x = g.waveform_position[1] + g.waveform_size[1]
-        end
-        a:new_event()
-        a:pos(x, seekbar_bottom)
-        a:append(string.format("{\\an%s\\fs%s\\bord0}", align, time_text_size))
-        a:append(format_time(time))
-    end
-
-    local cursor_x = nil
-    local end_x = g.waveform_position[1] + g.waveform_size[1]
-    local current_x = nil
-
-    do
-        local mx, my = mp.get_mouse_pos()
-        local tx = mx - g.waveform_position[1]
-        local ty = my - g.waveform_position[2]
-        if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
-            cursor_x = mx
-            for _, chap in ipairs(chapters) do
-                local chap_x = g.waveform_position[1] + chap.time / length * g.waveform_size[1]
-                if math.abs(chap_x - cursor_x) < snap_within then
-                    cursor_x = chap_x
-                end
-            end
-        end
-    end
-    local pos = mp.get_property_number("time-pos")
-    if pos and length then
-        current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / length)
-    end
-
-    -- cursor > current > end
-    if cursor_x and current_x and math.abs(cursor_x - current_x) < time_width then
-        current_x = nil
-    end
-    if cursor_x and end_x and math.abs(cursor_x - end_x) < time_width then
-        end_x = nil
-    end
-    if current_x and end_x and math.abs(current_x - end_x) < time_width then
-        end_x = nil
-    end
-
-    show_time_at(current_x)
-    show_time_at(end_x)
-    show_time_at(cursor_x)
-
-    ass.seekbar.times = a.text
-    ass.changed = true
-end
-
-function redraw_cursor_bar()
-    local x, y = mp.get_mouse_pos()
-    local g = seekbar_geometry
-    local tx = x - g.waveform_position[1]
-    local ty = y - g.waveform_position[2]
-    if not playing_index or tx < 0 or tx > g.waveform_size[1] or ty < 0 or ty > g.waveform_size[2] then
-        if ass.seekbar.cursor_bar ~= "" then
-            ass.seekbar.cursor_bar = ""
-            ass.changed = true
-        end
-        return
-    end
-    local a = assdraw.ass_new()
-    a:new_event()
-    a:pos(0, 0)
-    a:append('{\\bord0\\shad0\\1c&' .. cursor_bar_color .. '}')
-    a:draw_start()
-    local w = cursor_bar_width/2
-    local g = seekbar_geometry
-    local y1 = g.waveform_position[2]
-    local y2 = y1 + g.waveform_size[2]
-    a:rect_cw(x - w, y1, x + w, y2)
-    ass.seekbar.cursor_bar = a.text
-    ass.changed = true
-end
-
-function redraw_chapters()
-    if not chapters then
-        ass.seekbar.chapters = ""
-        ass.changed = true
-        return
-    end
-    local a = assdraw.ass_new()
-    a:new_event()
-    a:pos(0, 0)
-    a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
-    a:draw_start()
-    local w = chapters_marker_width/2
-    local g = seekbar_geometry
-    local y1 = g.waveform_position[2]
-    local y2 = y1 + g.waveform_size[2]
-    for _, chap in ipairs(chapters) do
-        local x = g.waveform_position[1] + g.waveform_size[1] * (chap.time / length)
-        a:rect_cw(x - w, y1, x + w, y2)
-    end
-    local x = g.waveform_position[1] + g.waveform_size[1]
-    a:rect_cw(x - w, y1, x + w, y2)
-    a:new_event()
-    a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
-    a:append('{\\bord0\\an4}')
-    local chapnum = mp.get_property_number("chapter", 0) + 1
-    if chapnum <= 0 then chapnum = 1 end
-    local chap = chapters[chapnum]
-    local title = string.match(chap.title, ".*/%d+ (.*)%..-")
-    local duration = chapnum == #chapters and length - chap.time or chapters[chapnum + 1].time - chap.time
-    local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chapnum, #chapters, mp.format_time(duration, "%m:%S"))
-    local album = albums[playing_index]
-    text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
-    a:append(text)
-    ass.seekbar.chapters = a.text
-    ass.changed = true
-end
-
-function redraw_elapsed()
-    local pos = mp.get_property_number("time-pos")
-    if not length or not pos then
-        if ass.seekbar.elapsed ~= "" then
-            ass.seekbar.elapsed = ""
-            ass.changed = true
-        end
-        return
-    end
-    local a = assdraw.ass_new()
-    a:new_event()
-    a:append('{\\bord0}')
-    a:append('{\\shad0}')
-    a:append('{\\1c&' .. "222222" .. '}')
-    a:append('{\\1a&' .. "AA" .. '}')
-    a:pos(0,0)
-    a:draw_start()
-    local g = seekbar_geometry
-    local y1 = g.waveform_position[2]
-    local y2 = y1 + g.waveform_size[2]
-    local x1 = g.waveform_position[1]
-    local x2 = x1 + g.waveform_size[1] * (pos / length)
-    a:rect_cw(x1, y1, x2, y2)
-    ass.seekbar.elapsed = a.text
-    ass.changed = true
-end
-
-function gallery_main_activate()
-    if playing_index == nil then
-        play(gallery_main.selection)
-    else
-        queue[#queue + 1] = gallery_main.selection
-        if #queue == 1 then
-            gallery_queue.pending.selection = 1
-        end
-        gallery_queue:items_changed()
-    end
-end
-
-function gallery_queue_activate()
-    local sel = gallery_queue.selection
-    play(table.remove(queue, sel))
-    if sel > #queue then
-        gallery_queue.selection = #queue
-    end
-    gallery_queue:items_changed()
-end
-
-function add_to_queue(index)
-end
-
-function play(index)
-    local item = albums[index]
-    local files = utils.readdir(item.dir)
+function play(album_index)
+    local album = albums[album_index]
+    local files = utils.readdir(album.dir)
     if not files then return end
     table.sort(files)
     for i, file in ipairs(files) do
-        file = item.dir .. "/" .. file
+        file = album.dir .. "/" .. file
         files[i] = string.format("%%%i%%%s", string.len(file), file)
     end
-    playing_index = index
-    mp.commandv("loadfile", "edl://" .. table.concat(files, ';'))
+    playing_index = album_index
     mp.set_property_bool("pause", false)
-    mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, item.year, string.gsub(item.album, ':', '\\:')))
-    mp.set_property("vid", "1")
-    mp.commandv("overlay-add",
-        seekbar_overlay_index,
-        tostring(math.floor(seekbar_geometry.cover_position[1] + 0.5)),
-        tostring(math.floor(seekbar_geometry.cover_position[2] + 0.5)),
-        string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
-            item.artist, item.album,
-            seekbar_geometry.cover_size[1],
-            seekbar_geometry.cover_size[2]),
-        "0",
-        "bgra",
-        tostring(seekbar_geometry.cover_size[1]),
-        tostring(seekbar_geometry.cover_size[2]),
-        tostring(4*seekbar_geometry.cover_size[1]))
+    mp.commandv("loadfile", "edl://" .. table.concat(files, ';'))
 end
 
-mp.add_forced_key_binding("ENTER", "enter", function()
-    if focus == 1 then
-        gallery_main_activate()
-    elseif focus == 2 then
-        gallery_queue_activate()
+local all_keys = {}
+for _, comp in ipairs(components) do
+    for key, _ in pairs(comp.keys) do
+        all_keys[key] = true
     end
-end)
-
-function change_focus(new)
-    local old_focus = focus
-    focus = (new - 1 + 3) % 3 + 1
-    if focus == old_focus then return end
-    gallery_main.config.background_color = background_idle
-    gallery_queue.config.background_color = background_idle
-    if focus == 1 then
-        gallery_main.config.background_color = background_focus
-    elseif focus == 2 then
-        gallery_queue.config.background_color = background_focus
-    end
-    if old_focus == 2 and #queue > 0 then
-        gallery_queue.pending.selection = 1
-    end
-    redraw_seekbar_background()
-    gallery_main:ass_refresh(true, false, false, true)
-    gallery_queue:ass_refresh(false, false, false, true)
+end
+for key, _ in pairs(all_keys) do
+    mp.add_forced_key_binding(key, function()
+        if focused_component then
+            local func = focused_component.keys[key]
+            if func then func() end
+        end
+    end)
 end
 
-function element_from_pos(x, y)
-    local tx, ty, g
-    g = gallery_main.geometry
-    tx = x - g.gallery_position[1]
-    ty = y - g.gallery_position[2]
-    if tx > 0 and tx < g.gallery_size[1] and ty > 0 and ty < g.gallery_size[2] then
-        return 1
-    end
-    g = gallery_queue.geometry
-    tx = x - g.gallery_position[1]
-    ty = y - g.gallery_position[2]
-    if tx > 0 and tx < g.gallery_size[1] and ty > 0 and ty < g.gallery_size[2] then
-        return 2
-    end
-    g = seekbar_geometry
-    tx = x - g.position[1]
-    ty = y - g.position[2]
-    if tx > 0 and tx < g.size[1] and ty > 0 and ty < g.size[2] then
-        return 3
-    end
-    return nil
-end
-
-mp.add_forced_key_binding("DEL", "del", function()
-    if focus == 2 then
-        local index = gallery_queue.selection
-        table.remove(queue, index)
-        if index > #queue then
-            gallery_queue.selection = #queue
-        end
-        gallery_queue:items_changed()
-    elseif focus == 3 then
-        if playing_index ~= nil then
-            mp.commandv("playlist-remove", "0")
-        end
-    end
-end)
-
-mp.add_forced_key_binding("MBTN_RIGHT", "rightclick", function()
-    local x, y = mp.get_mouse_pos()
-    local f = element_from_pos(x, y)
-    if f == 2 then
-        local index = gallery_queue:index_at(x, y)
-        if index then
-            if gallery_queue.selection == index then
-                table.remove(queue, index)
-                if index > #queue then
-                    gallery_queue.selection = #queue
-                end
-                gallery_queue:items_changed()
-            else
-                gallery_queue.pending.selection = index
-            end
-        end
-    elseif f == 3 then
-        if playing_index ~= nil then
-            local g = seekbar_geometry
-            x = x - g.cover_position[1]
-            y = y - g.cover_position[2]
-            if x >= 0 and x <= g.cover_size[1] and y >= 0 and y <= g.cover_size[2] then
-                mp.commandv("playlist-remove", "0")
-            end
-        end
-    end
-end)
-
-mp.add_forced_key_binding("MBTN_LEFT", "leftclick", function()
-    local x, y = mp.get_mouse_pos()
-    local f = element_from_pos(x, y)
-    if f == 1 then
-        local index = gallery_main:index_at(x, y)
-        if index then
-            if gallery_main.selection == index then
-                gallery_main_activate(index)
-            else
-                gallery_main.pending.selection = index
-            end
-        end
-    elseif f == 2 then
-        local index = gallery_queue:index_at(x, y)
-        if index then
-            if gallery_queue.selection == index then
-                gallery_queue_activate(index)
-            else
-                gallery_queue.pending.selection = index
-            end
-        end
-    elseif f == 3 then
-        if playing_index and length then
-            local g = seekbar_geometry
-            x = x - g.waveform_position[1]
-            y = y - g.waveform_position[2]
-            if x >= 0 and x <= g.waveform_size[1] and y >= 0 and y <= g.waveform_size[2] then
-                mp.set_property_number("time-pos", x / g.waveform_size[1] * length)
-            end
-        end
-    end
-end)
-
-local move_current_gallery = function(leftright, updown, clamp)
-    if focus ~= 1 and focus ~= 2 then return false end
-    local gallery = (focus == 1 and gallery_main or gallery_queue)
-    local inc = leftright + updown * gallery.geometry.columns
-    local new = (gallery.pending.selection or gallery.selection) + inc
-    if new <= 0 or new > #gallery.items then
-        if clamp then
-            gallery.pending.selection = math.max(1, math.min(new, #gallery.items))
-        end
+function focus_next_component(backwards)
+    if not focused_component and #active_components > 0 then
+        focused_component = active_components[1]
+        focused_component.set_focus(true)
     else
-        gallery.pending.selection = new
+        local index_0
+        for i, comp in ipairs(active_components) do
+            if comp == focused_component then
+                index_0 = i - 1
+                break
+            end
+        end
+        local next = ((index_0 + (backwards and -1 or 1)) % #active_components) + 1
+        focused_component.set_focus(false)
+        focused_component = active_components[next]
+        focused_component.set_focus(true)
     end
-    return true
 end
 
-function scroll(up)
-    if focus == 1 or focus == 2 then
-        move_current_gallery(0, up and -1 or 1, false)
-    elseif f == 3 then
-        mp.commandv("no-osd", "seek", up and "5" or "-5", "exact")
-    end
-end
-
-mp.add_forced_key_binding("WHEEL_UP", "wheel_up", function() scroll(true) end)
-mp.add_forced_key_binding("WHEEL_DOWN", "wheel_down", function() scroll(false) end)
-
-mp.add_forced_key_binding("LEFT", "left",  function() move_current_gallery(-1, 0, false) end, {repeatable=true})
-mp.add_forced_key_binding("RIGHT", "right",  function() move_current_gallery(1, 0, false) end, {repeatable=true})
-mp.add_forced_key_binding("UP", "up",  function() move_current_gallery(0, -1, false) end, {repeatable=true})
-mp.add_forced_key_binding("DOWN", "down",  function() move_current_gallery(0, 1, false) end, {repeatable=true})
-
-mp.add_forced_key_binding("r", "rand",  function()
-    if not focus == 1 then return end
-    gallery_main.pending.selection = math.random(1, #albums)
-end, {repeatable=true})
-
-mp.add_forced_key_binding("TAB", "tab", function() change_focus(focus + 1) end)
-mp.add_forced_key_binding("SHIFT+TAB", "backtab", function() change_focus(focus - 1) end)
-
-mp.register_event("idle", function()
-    playing_index = nil
-    length = nil
-    chapters = nil
-    if #queue == 0 then
-        mp.commandv("overlay-remove", seekbar_overlay_index)
-        redraw_chapters()
-        redraw_elapsed()
-        redraw_seekbar_times()
-    else
-        play(table.remove(queue, 1))
-        gallery_queue:items_changed()
-    end
-end)
-
-mp.register_event("file-loaded", function()
-    chapters = mp.get_property_native("chapter-list")
-    length = mp.get_property_number("duration")
-    redraw_chapters()
-    redraw_seekbar_times()
-end)
-
-mp.add_periodic_timer(0.5, function()
-    if playing_index ~= nil and not paused then
-        redraw_elapsed()
-        redraw_seekbar_times()
-    end
-end)
-
-mp.observe_property("pause", "bool", function(_, val)
-    paused = val
-end)
-
-mp.observe_property("chapter", "number", function()
-    redraw_chapters()
-end)
-
-mp.observe_property("seeking", "bool", function(_, val)
-    if playing_index ~= nil and not val then
-        redraw_elapsed()
-        redraw_seekbar_times()
-    end
-end)
-
-function start_or_resize()
-    local ww, wh = mp.get_osd_size()
-    if not ww or not wh or ww * wh <= 0 then return end
-    update_seekbar_geom(ww, wh)
-    if not gallery_main.active then
-        change_focus(1)
-        gallery_main:activate(1)
-        gallery_queue:activate(0)
-    end
-    redraw_seekbar_background()
-    if playing_index ~= nil then
-        redraw_chapters()
-        redraw_elapsed()
-        redraw_cursor_bar()
-        redraw_seekbar_times()
-        local item = albums[playing_index]
-        mp.commandv("overlay-add",
-            seekbar_overlay_index,
-            tostring(math.floor(seekbar_geometry.cover_position[1] + 0.5)),
-            tostring(math.floor(seekbar_geometry.cover_position[2] + 0.5)),
-            string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
-                item.artist, item.album,
-                seekbar_geometry.cover_size[1],
-                seekbar_geometry.cover_size[2]),
-            "0",
-            "bgra",
-            tostring(seekbar_geometry.cover_size[1]),
-            tostring(seekbar_geometry.cover_size[2]),
-            tostring(4*seekbar_geometry.cover_size[1]))
-    end
-    local g = seekbar_geometry
-    set_video_position(ww, wh, g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
-end
+mp.add_forced_key_binding("TAB", "tab", function() focus_next_component(false) end, { repeatable=true })
+mp.add_forced_key_binding("SHIFT+TAB", "backtab", function() focus_next_component(true) end, { repeatable=true })
 
 local size_changed = false
 for _, prop in ipairs({"osd-width", "osd-height"}) do
@@ -727,36 +684,70 @@ for _, prop in ipairs({"osd-width", "osd-height"}) do
 end
 
 local mouse_moved = false
-mp.add_forced_key_binding("mouse_move", "mouse_move", function() mouse_moved = true end)
+mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
 
+function component_from_pos(x, y)
+    for _, comp in ipairs(active_components) do
+        local px, py = comp.position()
+        local tx = x - px
+        local ty = y - py
+        local sx, sy = comp.size()
+        if tx >= 0 and ty >= 0 and tx <= sx and ty <= sy then
+            return comp
+        end
+    end
+    return nil
+end
+
+local started = false
 mp.register_idle(function()
-    gallery_main:invoke_idle()
-    gallery_queue:invoke_idle()
+    for _, comp in ipairs(active_components) do
+        comp.idle()
+    end
     if size_changed then
-        start_or_resize()
         size_changed = false
+        local ww, wh = mp.get_osd_size()
+        if ww and wh and ww * wh > 0 then
+            local x = global_offset
+            local y = global_offset
+            local w = ww - 2 * global_offset
+            local h = wh - 2 * global_offset
+            now_playing_component.set_geometry(x, y + h - 180, w, 180)
+            h = h - 180 - global_offset
+
+            queue_component.set_geometry(x + w - 200, y, 200, h)
+            w = w - 200 - global_offset
+
+            albums_component.set_geometry(x, y, w, h)
+
+            if not started then
+                started = true
+                for _, comp in ipairs(active_components) do
+                    comp.set_active(true)
+                end
+            end
+        end
     end
     if mouse_moved then
-        local x, y = mp.get_mouse_pos()
-        local f = element_from_pos(x, y)
-        if f then
-            change_focus(f)
-        end
-        redraw_cursor_bar()
-        redraw_seekbar_times()
         mouse_moved = false
+        local x, y = mp.get_mouse_pos()
+        local comp = component_from_pos(x, y)
+        if comp and comp ~= focused_component then
+            if focused_component then
+                focused_component.set_focus(false)
+            end
+            focused_component = comp
+            focused_component.set_focus(true)
+        end
     end
-    if ass.changed then
+    if ass_changed then
+        ass_changed = false
         local ww, wh = mp.get_osd_size()
         mp.set_osd_ass(ww, wh, table.concat({
-            ass.main,
-            ass.queue,
-            ass.seekbar.background,
-            ass.seekbar.elapsed,
-            ass.seekbar.chapters,
-            ass.seekbar.cursor_bar,
-            ass.seekbar.times
+            albums_component.ass(),
+            queue_component.ass(),
+            now_playing_component.ass(),
+            lyrics_component.ass(),
         }, "\n"))
-        ass.changed = false
     end
 end)

@@ -10,9 +10,8 @@ function gallery_new()
         active = false,
         items = {},
         geometry = {
-            window = { 0, 0 },
-            gallery_position = { 0, 0 },
-            gallery_size = { 0, 0 },
+            position = { 0, 0 },
+            size = { 0, 0 },
             min_spacing = { 0, 0 },
             thumbnail_size = { 0, 0 },
             rows = 0,
@@ -28,12 +27,7 @@ function gallery_new()
             missing = {}, -- associative array of thumbnail path to view index it should be shown at
         },
         selection = 0,
-        pending = {
-            selection = nil,
-            geometry_changed = false,
-        },
         config = {
-            background = true,
             background_color = '333333',
             background_opacity = '33',
             background_roundness = 5,
@@ -58,21 +52,12 @@ function gallery_new()
         },
         generators = {}, -- list of generator scripts
 
-        too_small = function() return end,
         item_to_overlay_path = function(index, item) return "" end,
         item_to_thumbnail_params = function(index, item) return "", 0 end,
         item_to_text = function(index, item) return "", true end,
         item_to_border = function(index, item) return 0, "" end,
-        set_geometry_props = function(ww, wh) return end,
         ass_show = function(ass) end,
-        ass_hide = function() end,
-
-        idle,
-        window_changed
     }, gallery_mt)
-
-    gallery.ass_show = function(ass) mp.set_osd_ass(gallery.geometry.window[1], gallery.geometry.window[2], ass) end
-    gallery.ass_hide = function() mp.set_osd_ass(1280, 720, "") end
 
     for i = 1, gallery.config.max_thumbnails do
         gallery.overlays.active[i] = false
@@ -162,10 +147,10 @@ end
 
 function gallery_mt.index_at(gallery, mx, my)
     local g = gallery.geometry
-    if mx < g.gallery_position[1] or my < g.gallery_position[2] then return nil end
-    mx = mx - g.gallery_position[1]
-    my = my - g.gallery_position[2]
-    if mx > g.gallery_size[1] or my > g.gallery_size[2] then return nil end
+    if mx < g.position[1] or my < g.position[2] then return nil end
+    mx = mx - g.position[1]
+    my = my - g.position[2]
+    if mx > g.size[1] or my > g.size[2] then return nil end
     mx = mx - g.effective_spacing[1]
     my = my - g.effective_spacing[2]
     local on_column = (mx % (g.thumbnail_size[1] + g.effective_spacing[1])) < g.thumbnail_size[1]
@@ -181,17 +166,17 @@ function gallery_mt.index_at(gallery, mx, my)
     return nil
 end
 
-function gallery_mt.compute_geometry(gallery)
+function gallery_mt.compute_internal_geometry(gallery)
     local g = gallery.geometry
-    g.rows = math.floor((g.gallery_size[2] - g.min_spacing[2]) / (g.thumbnail_size[2] + g.min_spacing[2]))
-    g.columns = math.floor((g.gallery_size[1] - g.min_spacing[1]) / (g.thumbnail_size[1] + g.min_spacing[1]))
+    g.rows = math.floor((g.size[2] - g.min_spacing[2]) / (g.thumbnail_size[2] + g.min_spacing[2]))
+    g.columns = math.floor((g.size[1] - g.min_spacing[1]) / (g.thumbnail_size[1] + g.min_spacing[1]))
     if (g.rows * g.columns > gallery.config.max_thumbnails) then
         local r = math.sqrt(g.rows * g.columns / gallery.config.max_thumbnails)
         g.rows = math.floor(g.rows / r)
         g.columns = math.floor(g.columns / r)
     end
-    g.effective_spacing[1] = (g.gallery_size[1] - g.columns * g.thumbnail_size[1]) / (g.columns + 1)
-    g.effective_spacing[2] = (g.gallery_size[2] - g.rows * g.thumbnail_size[2]) / (g.rows + 1)
+    g.effective_spacing[1] = (g.size[1] - g.columns * g.thumbnail_size[1]) / (g.columns + 1)
+    g.effective_spacing[2] = (g.size[2] - g.rows * g.thumbnail_size[2]) / (g.rows + 1)
     return true
 end
 
@@ -259,7 +244,7 @@ function gallery_mt.refresh_background(gallery)
     a:append('{\\1a&' .. gallery.config.background_opacity .. '}')
     a:pos(0, 0)
     a:draw_start()
-    a:round_rect_cw(g.gallery_position[1], g.gallery_position[2], g.gallery_position[1] + g.gallery_size[1], g.gallery_position[2] + g.gallery_size[2], gallery.config.background_roundness)
+    a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], gallery.config.background_roundness)
     a:draw_stop()
     gallery.ass.background = a.text
 end
@@ -306,14 +291,14 @@ function gallery_mt.refresh_scrollbar(gallery)
                 after / before * (1 - p) / (1 + after / before)
         end
     end
-    local dist_from_edge = g.gallery_size[2] * 0.015
-    local y1 = g.gallery_position[2] + dist_from_edge + before * (g.gallery_size[2] - 2 * dist_from_edge)
-    local y2 = g.gallery_position[2] + g.gallery_size[2] - (dist_from_edge + after * (g.gallery_size[2] - 2 * dist_from_edge))
+    local dist_from_edge = g.size[2] * 0.015
+    local y1 = g.position[2] + dist_from_edge + before * (g.size[2] - 2 * dist_from_edge)
+    local y2 = g.position[2] + g.size[2] - (dist_from_edge + after * (g.size[2] - 2 * dist_from_edge))
     local x1, x2
     if gallery.config.scrollbar_left_side then
-        x1 = g.gallery_position[1] + g.effective_spacing[1] / 2 - 2
+        x1 = g.position[1] + g.effective_spacing[1] / 2 - 2
     else
-        x1 = g.gallery_position[1] + g.gallery_size[1] - g.effective_spacing[1] / 2 - 2
+        x1 = g.position[1] + g.size[1] - g.effective_spacing[1] / 2 - 2
     end
     x2 = x1 + 4
     local scrollbar = assdraw.ass_new()
@@ -385,6 +370,7 @@ function gallery_mt.refresh_selection(gallery)
 end
 
 function gallery_mt.ass_refresh(gallery, selection, scrollbar, placeholders, background)
+    if not gallery.active then return end
     if selection then gallery:refresh_selection() end
     if scrollbar then gallery:refresh_scrollbar() end
     if placeholders then gallery:refresh_placeholders() end
@@ -397,10 +383,9 @@ function gallery_mt.ass_refresh(gallery, selection, scrollbar, placeholders, bac
     }, "\n"))
 end
 
-function gallery_mt.idle_handler(gallery)
-    if gallery.pending.selection then
-        gallery.selection = math.max(1, math.min(gallery.pending.selection, #gallery.items))
-        gallery.pending.selection = nil
+function gallery_mt.set_selection(gallery, selection)
+    gallery.selection = math.max(1, math.min(selection, #gallery.items))
+    if gallery.active then
         if gallery:ensure_view_valid() then
             gallery:refresh_overlays(false)
             gallery:ass_refresh(true, true, true, false)
@@ -408,31 +393,31 @@ function gallery_mt.idle_handler(gallery)
             gallery:ass_refresh(true, false, false, false)
         end
     end
-    if gallery.pending.geometry_changed then
-        gallery.pending.geometry_changed = false
-        local ww, wh = mp.get_osd_size()
-        if ww ~= gallery.geometry.window[1] or wh ~= gallery.geometry.window[2] then
-            gallery.geometry.window = {ww,wh}
-            gallery.set_geometry_props(ww, wh)
-            if not gallery:enough_space() then
-                gallery.too_small()
-                return
-            end
-            local old_total = gallery.geometry.rows * gallery.geometry.columns
-            gallery:compute_geometry()
-            local new_total = gallery.geometry.rows * gallery.geometry.columns
-            for view_index = new_total + 1, old_total do
-                mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
-                gallery.overlays.active[view_index] = false
-            end
-            gallery:ensure_view_valid()
-            gallery:refresh_overlays(true)
-            gallery:ass_refresh(true, true, true, true)
+end
+    
+function gallery_mt.set_geometry(gallery, x, y, w, h)
+    gallery.geometry.position = {x, y}
+    gallery.geometry.size = {w, h}
+    if not gallery.active then return end
+    if not gallery:enough_space() then
+        msg.warn("Not enough space to display something")
+    end
+    local old_total = gallery.geometry.rows * gallery.geometry.columns
+    gallery:compute_internal_geometry()
+    gallery:ensure_view_valid()
+    local new_total = gallery.geometry.rows * gallery.geometry.columns
+    for view_index = new_total + 1, old_total do
+        if gallery.overlays.active[view_index] then
+            mp.commandv("overlay-remove", gallery.config.overlay_range + view_index - 1)
+            gallery.overlays.active[view_index] = false
         end
     end
+    gallery:refresh_overlays(true)
+    gallery:ass_refresh(true, true, true, true)
 end
 
 function gallery_mt.items_changed(gallery)
+    if not gallery.active then return end
     gallery:ensure_view_valid()
     gallery:refresh_overlays(false)
     gallery:ass_refresh(true, true, true, false)
@@ -458,51 +443,35 @@ end
 
 function gallery_mt.view_index_position(gallery, index_0)
     local g = gallery.geometry
-    return math.floor(g.gallery_position[1] + g.effective_spacing[1] + (g.effective_spacing[1] + g.thumbnail_size[1]) * (index_0 % g.columns)),
-        math.floor(g.gallery_position[2] + g.effective_spacing[2] + (g.effective_spacing[2] + g.thumbnail_size[2]) * math.floor(index_0 / g.columns))
+    return math.floor(g.position[1] + g.effective_spacing[1] + (g.effective_spacing[1] + g.thumbnail_size[1]) * (index_0 % g.columns)),
+        math.floor(g.position[2] + g.effective_spacing[2] + (g.effective_spacing[2] + g.thumbnail_size[2]) * math.floor(index_0 / g.columns))
 end
 
 function gallery_mt.enough_space(gallery)
-    if gallery.geometry.gallery_size[1] < gallery.geometry.thumbnail_size[1] + 2 * gallery.geometry.min_spacing[1] then return false end
-    if gallery.geometry.gallery_size[2] < gallery.geometry.thumbnail_size[2] + 2 * gallery.geometry.min_spacing[2] then return false end
+    if gallery.geometry.size[1] < gallery.geometry.thumbnail_size[1] + 2 * gallery.geometry.min_spacing[1] then return false end
+    if gallery.geometry.size[2] < gallery.geometry.thumbnail_size[2] + 2 * gallery.geometry.min_spacing[2] then return false end
     return true
 end
 
-function gallery_mt.invoke_idle(gallery)
-    gallery:idle_handler()
-end
-
-function gallery_mt.activate(gallery, selection)
+function gallery_mt.activate(gallery)
     if gallery.active then return false end
-    local ww, wh = mp.get_osd_size()
-    gallery.geometry.window = {ww,wh}
-    gallery.set_geometry_props(ww, wh)
     if not gallery:enough_space() then
         msg.warn("Not enough space, refusing to start")
         return false
     end
-    gallery:compute_geometry()
-    gallery.selection = selection
+    gallery.active = true
+    gallery:compute_internal_geometry()
     gallery:ensure_view_valid()
     gallery:refresh_overlays(false)
     gallery:ass_refresh(true, true, true, true)
-    gallery.idle = function() gallery:idle_handler() end
-    mp.register_idle(gallery.idle)
-    gallery.window_changed = function() gallery.pending.geometry_changed = true end
-    for _, prop in ipairs({ "osd-width", "osd-height" }) do
-        mp.observe_property(prop, "native", gallery.window_changed)
-    end
-    gallery.active = true
     return true
 end
 
 function gallery_mt.deactivate(gallery)
     if not gallery.active then return end
-    gallery:remove_overlays()
-    gallery.ass_hide()
-    mp.unregister_idle(gallery.idle)
-    mp.unobserve_property(gallery.window_changed)
     gallery.active = false
+    gallery:remove_overlays()
+    gallery.ass_show("")
 end
 
 return {gallery_new = gallery_new}
