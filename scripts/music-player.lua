@@ -580,8 +580,8 @@ do
     this.keys = {
         -- TODO
         -- seeking and stuff
-        LEFT = function() end,
-        RIGHT = function() end,
+        LEFT = function() mp.command("no-osd seek -5 exact") end,
+        RIGHT = function() mp.command("no-osd seek 5 exact") end,
         PGUP = function() mp.command("no-osd add chapter 1") end,
         PGDWN = function() mp.command("no-osd add chapter -1") end,
         MBTN_RIGHT = function()
@@ -656,10 +656,10 @@ do
         ass_changed = true
     end
 
-    local timer = mp.add_periodic_timer(1, function()
+    local timer = mp.add_periodic_timer(0.5, function()
         if not this.autoscrolling or not playing_index then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
-        local grace_period = 30
+        local grace_period = this.track_length / 15
         local normalized = (mp.get_property_number("time-pos", 0) - grace_period - this.track_start)
         normalized = normalized  / (this.track_length - 2 * grace_period)
         normalized = math.max(0, math.min(normalized, 1))
