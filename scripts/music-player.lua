@@ -7,6 +7,7 @@ local opts = {
     root_dir = "music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
+    lyrics_dir = "lyrics", -- for optimization purposes
     albums_file = "", -- for optimization purposes
 }
 
@@ -246,6 +247,19 @@ do
 
     this.pending_selection = nil
 
+    -- TODO it's not so nice that this component knows about the queue
+    local function play_or_queue(index)
+        if playing_index == nil then
+            play(index)
+        else
+            queue[#queue + 1] = index
+            queue_component.gallery:items_changed()
+            if #queue == 1 then
+                queue_component.gallery:set_selection(1)
+            end
+        end
+    end
+
     local function increase_pending(inc)
         this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
     end
@@ -259,22 +273,16 @@ do
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         HOME = function() this.pending_selection = 1 end,
         END = function() this.pending_selection = #albums end,
-        -- TODO it's not so nice that this component knows about the queue
         ENTER = function()
-            if playing_index == nil then
-                play(this.gallery.selection)
-            else
-                queue[#queue + 1] = this.gallery.selection
-                queue_component.gallery:items_changed()
-                if #queue == 1 then
-                    queue_component.gallery:set_selection(1)
-                end
-            end
+            play_or_queue(this.gallery.selection)
         end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
             local index = this.gallery:index_at(mx, my)
-            if index then
+            if not index then return end
+            if index == this.gallery.selection then
+                play_or_queue(index)
+            else
                 this.gallery:set_selection(index)
             end
         end,
@@ -367,7 +375,7 @@ do
             end
         end
         local time_width = 65
-        local snap_within = 20
+        local snap_within = 10
 
         local g = this.geometry
         local a = assdraw.ass_new()
@@ -453,7 +461,7 @@ do
         ass_changed = true
     end
 
-    local function refresh_background(color)
+    local function redraw_background(color)
         local a = assdraw.ass_new()
         a:new_event()
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
@@ -509,7 +517,7 @@ do
                 this.chapters = mp.get_property_native("chapter-list")
                 redraw_chapters()
             end)
-            mp.register_event("idle", function()
+            mp.register_event("end-file", function()
                 mp.commandv("overlay-remove", seekbar_overlay_index)
                 mp.set_property("external-files", "")
                 this.duration = nil
@@ -519,14 +527,14 @@ do
                 redraw_chapters()
             end)
             timer:resume()
-            refresh_background(background_idle)
+            redraw_background(background_idle)
         else
             timer:kill()
         end
     end
     this.active = function() return this.is_active end
     this.set_focus = function(focus)
-        refresh_background(focus and background_focus or background_idle)
+        redraw_background(focus and background_focus or background_idle)
     end
     this.set_geometry = function(x, y, w, h)
         local g = this.geometry
@@ -546,6 +554,7 @@ do
 
         set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
         if this.is_active then
+            redraw_background()
             redraw_elapsed()
             redraw_times()
             redraw_chapters()
@@ -602,27 +611,147 @@ local lyrics_component = {}
 do
     local this = lyrics_component
 
+    this.geometry = {
+        positon = { 0, 0 },
+        size = { 0, 0 },
+    }
+    this.lyrics = {}
+    this.offset = 0
+    this.max_offset = 0
+    this.is_active = false
+    this.has_focus = false
+    this.autoscrolling = true
+    this.track_start = 0
+    this.track_length = 0
+    this.ass_text = {
+        background = "",
+        text = "",
+    }
+
+    local function redraw_background(color)
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
+        a:pos(0, 0)
+        a:draw_start()
+        local g = this.geometry
+        a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
+        this.ass_text.background = a.text
+        ass_changed = true
+    end
+
+    local function redraw_lyrics()
+        local g = this.geometry
+        local a = assdraw.ass_new()
+        a:new_event()
+        local fmt = string.format('{\\fs24\\an8\\bord0\\shad0\\clip(%d,%d,%d,%d)}',
+            g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2]
+        )
+        for i, l in ipairs(this.lyrics) do
+            a:new_event()
+            a:pos(g.position[1] + g.size[1] / 2, g.position[2] - this.offset + (i - 1) * 24)
+            a:append(fmt .. l)
+        end
+        this.ass_text.text = a.text
+        ass_changed = true
+    end
+
+    local timer = mp.add_periodic_timer(1, function()
+        if not this.autoscrolling or not playing_index then return end
+        -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
+        local grace_period = 30
+        local normalized = (mp.get_property_number("time-pos", 0) - grace_period - this.track_start)
+        normalized = normalized  / (this.track_length - 2 * grace_period)
+        normalized = math.max(0, math.min(normalized, 1))
+        this.offset = normalized * this.max_offset
+        redraw_lyrics()
+    end)
+    timer:kill()
+
     this.set_active = function(active)
+        this.is_active = active
+        if active then
+            timer:resume()
+            mp.observe_property("chapter", "number", function(_, chap)
+                this.offset = 0
+                this.lyrics = {}
+                redraw_lyrics()
+                if not chap then return end
+                chap = math.max(chap + 1, 1)
+                local chapters = mp.get_property_native("chapter-list")
+                this.track_start = chapters[chap].time
+                if chap == #chapters then
+                    this.track_length = mp.get_property_number("duration") - chapters[chap].time
+                else
+                    this.track_length = chapters[chap + 1].time - chapters[chap].time
+                end
+                local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
+                local album = albums[playing_index]
+                local f = io.open(string.format("%s/%s - %s/%s.lyr",
+                    opts.lyrics_dir,
+                    album.artist,
+                    album.album,
+                    title), "r")
+                if not f then
+                    msg.warn("Cannot open lyrics file")
+                    return
+                end
+                this.lyrics[1] = ""
+                for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
+                    this.lyrics[#this.lyrics + 1] = line
+                end
+                this.lyrics[#this.lyrics + 1] = ""
+                this.autoscrolling = true
+                this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
+
+                f:close()
+                redraw_lyrics()
+            end)
+            mp.register_event("end-file", function()
+                this.lyrics = {}
+                redraw_lyrics()
+            end)
+        else
+            timer:kill()
+        end
     end
     this.active = function()
-        return false
+        return this.is_active
     end
     this.set_focus = function(focus)
+        this.has_focus = focus
+        redraw_background(this.has_focus and background_focus or background_idle)
     end
     this.set_geometry = function(x, y, w, h)
+        this.geometry.position = { x, y }
+        this.geometry.size = { w, h }
+        if this.is_active then
+            this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
+            this.offset = math.max(0, math.min(this.offset, this.max_offset))
+            redraw_background(this.has_focus and background_focus or background_idle)
+            redraw_lyrics()
+        end
     end
     this.position = function()
-        return 0, 0
+        return this.geometry.position[1], this.geometry.position[2]
     end
     this.size = function()
-        return 0, 0
+        return this.geometry.size[1], this.geometry.size[2]
     end
     this.ass = function()
-        return ""
+        return this.ass_text.background .. "\n" .. this.ass_text.text
+    end
+
+    local scroll = function(howmuch)
+        this.offset = math.max(0, math.min(this.offset + howmuch, this.max_offset))
+        this.autoscrolling = false
+        redraw_lyrics()
     end
     this.keys = {
-        UP = function() end,
-        DOWN = function() end,
+        UP = function() scroll(-25) end,
+        DOWN = function() scroll(25) end,
+        WHEEL_UP = function() scroll(-15) end,
+        WHEEL_DOWN = function() scroll(15) end,
     }
     this.mouse_move = function(mx, my) end
 
@@ -661,6 +790,7 @@ local components = {
 }
 local active_components = {
     albums_component,
+    lyrics_component,
     queue_component,
     now_playing_component,
 }
@@ -688,10 +818,9 @@ for _, comp in ipairs(components) do
 end
 for key, _ in pairs(all_keys) do
     mp.add_forced_key_binding(key, function()
-        if focused_component then
-            local func = focused_component.keys[key]
-            if func then func() end
-        end
+        if not focused_component then return end
+        local func = focused_component.keys[key]
+        if func then func() end
     end)
 end
 
@@ -753,6 +882,10 @@ mp.register_idle(function()
 
             queue_component.set_geometry(x + w - 200, y, 200, h)
             w = w - 200 - global_offset
+
+            local half = (w - global_offset) / 2
+            lyrics_component.set_geometry(x + half + global_offset, y, half, h)
+            w = w - (half + global_offset)
 
             albums_component.set_geometry(x, y, w, h)
 
