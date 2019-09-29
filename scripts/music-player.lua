@@ -150,22 +150,46 @@ do
 
     this.pending_selection = nil
 
+    local function increase_pending(inc)
+        this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
+    end
+    local function play_from_queue()
+        if #queue == 0 then return end
+        play(table.remove(queue, this.gallery.selection))
+        if this.gallery.selection > #queue then
+            this.gallery:set_selection(this.gallery.selection - 1)
+        end
+        this.gallery:items_changed()
+    end
+
     this.keys = {
-        LEFT = function()
-            this.pending_selection = this.pending_selection and this.pending_selection - 1 or this.gallery.selection - 1
+        LEFT = function() increase_pending(-1) end,
+        RIGHT = function() increase_pending(1) end,
+        UP = function() increase_pending(-this.gallery.columns) end,
+        DOWN = function() increase_pending(this.gallery.columns) end,
+        ENTER = function() play_from_queue() end,
+        MBTN_LEFT = function()
+            local mx, my = mp.get_mouse_pos()
+            local index = this.gallery:index_at(mx, my)
+            if not index then return end
+            if index == this.gallery.selection then
+                play_from_queue()
+            else
+                this.pending_selection = index
+            end
         end,
-        RIGHT = function()
-            this.pending_selection = this.pending_selection and this.pending_selection + 1 or this.gallery.selection + 1
-        end,
-        UP = function() end,
-        DOWN = function() end,
-        ENTER = function()
-            if #queue > 0 then
-                play(table.remove(queue, this.gallery.selection))
+        MBTN_RIGHT = function()
+            local mx, my = mp.get_mouse_pos()
+            local index = this.gallery:index_at(mx, my)
+            if not index then return end
+            if index == this.gallery.selection then
+                table.remove(queue, index)
                 if this.gallery.selection > #queue then
                     this.gallery:set_selection(this.gallery.selection - 1)
                 end
                 this.gallery:items_changed()
+            else
+                this.pending_selection = index
             end
         end,
     }
@@ -578,8 +602,8 @@ do
     end
 
     this.keys = {
-        -- TODO
-        -- seeking and stuff
+        UP = function() mp.command("no-osd seek 30 exact") end,
+        DOWN = function() mp.command("no-osd seek -30 exact") end,
         LEFT = function() mp.command("no-osd seek -5 exact") end,
         RIGHT = function() mp.command("no-osd seek 5 exact") end,
         PGUP = function() mp.command("no-osd add chapter 1") end,
