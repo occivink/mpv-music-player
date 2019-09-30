@@ -4,11 +4,11 @@ local msg = require 'mp.msg'
 local gallery = require 'lib/gallery'
 
 local opts = {
-    root_dir = "/mnt/moccasin/music",
+    root_dir = "music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
-    lyrics_dir = "/mnt/moccasin/lyrics", -- for optimization purposes
-    albums_file = "albums", -- for optimization purposes
+    lyrics_dir = "lyrics",
+    albums_file = "", -- for optimization purposes
 }
 
 -- CONFIG
@@ -162,11 +162,13 @@ do
         this.gallery:items_changed()
     end
 
-    this.keys = {
+    this.keys_repeat = {
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
         UP = function() increase_pending(-this.gallery.columns) end,
         DOWN = function() increase_pending(this.gallery.columns) end,
+    }
+    this.keys = {
         ENTER = function() play_from_queue() end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
@@ -288,12 +290,14 @@ do
         this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
     end
 
-    this.keys = {
+    this.keys_repeat = {
         r = function() this.pending_selection = math.random(1, #albums) end,
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
         UP = function() increase_pending(-this.gallery.geometry.columns) end,
         DOWN = function() increase_pending(this.gallery.geometry.columns) end,
+    }
+    this.keys = {
         WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         HOME = function() this.pending_selection = 1 end,
@@ -602,11 +606,13 @@ do
         }, "\n")
     end
 
-    this.keys = {
+    this.keys_repeat = {
         UP = function() mp.command("no-osd seek 30 exact") end,
         DOWN = function() mp.command("no-osd seek -30 exact") end,
         LEFT = function() mp.command("no-osd seek -5 exact") end,
         RIGHT = function() mp.command("no-osd seek 5 exact") end,
+    }
+    this.keys = {
         PGUP = function() mp.command("no-osd add chapter 1") end,
         PGDWN = function() mp.command("no-osd add chapter -1") end,
         MBTN_RIGHT = function()
@@ -781,10 +787,12 @@ do
         this.autoscrolling = false
         redraw_lyrics()
     end
-    this.keys = {
+    this.keys_repeat = {
         a = function() this.autoscrolling = true autoscroll() end,
         UP = function() scroll(-25) end,
         DOWN = function() scroll(25) end,
+    }
+    this.keys = {
         WHEEL_UP = function() scroll(-15) end,
         WHEEL_DOWN = function() scroll(15) end,
     }
@@ -850,13 +858,21 @@ for _, comp in ipairs(components) do
     for key, _ in pairs(comp.keys) do
         all_keys[key] = true
     end
+    for key, _ in pairs(comp.keys_repeat) do
+        all_keys[key] = true
+    end
 end
 for key, _ in pairs(all_keys) do
-    mp.add_forced_key_binding(key, function()
+    mp.add_forced_key_binding(key, "BIND" .. key, function(table)
         if not focused_component then return end
-        local func = focused_component.keys[key]
-        if func then func() end
-    end)
+        if table["event"] == "down" then
+            local func = focused_component.keys_repeat[key] or focused_component.keys[key]
+            if func then func() end
+        elseif table["event"] == "repeat" then
+            func = focused_component.keys_repeat[key]
+            if func then func() end
+        end
+    end, { repeatable=true, complex=true })
 end
 
 function focus_next_component(backwards)
