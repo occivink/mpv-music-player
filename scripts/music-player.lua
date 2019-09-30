@@ -33,6 +33,7 @@ local ass_changed = false
 local seekbar_overlay_index = 0
 
 local playing_index = nil
+local last_index = nil
 
 local albums = {}
 local queue = {}
@@ -165,10 +166,12 @@ do
     this.keys_repeat = {
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
-        UP = function() increase_pending(-this.gallery.columns) end,
-        DOWN = function() increase_pending(this.gallery.columns) end,
+        UP = function() increase_pending(-this.gallery.geometry.columns) end,
+        DOWN = function() increase_pending(this.gallery.geometry.columns) end,
     }
     this.keys = {
+        WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
+        WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         ENTER = function() play_from_queue() end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
@@ -691,11 +694,11 @@ do
     local function autoscroll()
         if not this.autoscrolling or not playing_index then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
-        local grace_period = this.track_length / 15
+        local grace_period = math.max(this.track_length / 15, 20)
         local pos = mp.get_property_number("time-pos", 0) - this.track_start
         if pos < grace_period then
             normalized = 0
-        elseif pos > this.track_length - grace_period then
+        elseif pos > (this.track_length - grace_period) then
             normalized = 1
         else
             normalized = (pos - grace_period) / (this.track_length - 2 * grace_period)
@@ -711,7 +714,7 @@ do
         this.is_active = active
         if active then
             timer:resume()
-            mp.register_event("seek", function() autoscroll() end)
+            mp.register_event("seek", autoscroll)
             mp.observe_property("chapter", "number", function(_, chap)
                 this.offset = 0
                 this.lyrics = {}
@@ -740,17 +743,18 @@ do
                 for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
                     this.lyrics[#this.lyrics + 1] = line
                 end
+                f:close()
                 this.lyrics[#this.lyrics + 1] = ""
                 this.autoscrolling = true
                 this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
 
-                f:close()
                 redraw_lyrics()
             end)
             mp.register_event("end-file", function()
                 this.lyrics = {}
                 redraw_lyrics()
             end)
+            redraw_background(background_idle)
         else
             timer:kill()
         end
@@ -848,9 +852,9 @@ function play(album_index)
         file = album.dir .. "/" .. file
         files[i] = string.format("%%%i%%%s", string.len(file), file)
     end
-    playing_index = album_index
     mp.set_property_bool("pause", false)
     mp.commandv("loadfile", "edl://" .. table.concat(files, ';'))
+    last_index = album_index
 end
 
 local all_keys = {}
@@ -863,7 +867,7 @@ for _, comp in ipairs(components) do
     end
 end
 for key, _ in pairs(all_keys) do
-    mp.add_forced_key_binding(key, "BIND" .. key, function(table)
+    mp.add_forced_key_binding(key, "bind-" .. key, function(table)
         if not focused_component then return end
         if table["event"] == "down" then
             local func = focused_component.keys_repeat[key] or focused_component.keys[key]
@@ -894,6 +898,11 @@ function focus_next_component(backwards)
     end
 end
 
+-- slightly tricky: we rely on the fact that the register_event functions added last are executed first
+-- so that other "start-file" listeners see the proper playing_index value
+mp.register_event("start-file", function()
+    playing_index = last_index
+end)
 mp.register_event("end-file", function()
     playing_index = nil
 end)
