@@ -4,11 +4,11 @@ local msg = require 'mp.msg'
 local gallery = require 'lib/gallery'
 
 local opts = {
-    root_dir = "music",
+    root_dir = "/mnt/moccasin/music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
-    lyrics_dir = "lyrics", -- for optimization purposes
-    albums_file = "", -- for optimization purposes
+    lyrics_dir = "/mnt/moccasin/lyrics", -- for optimization purposes
+    albums_file = "albums", -- for optimization purposes
 }
 
 -- CONFIG
@@ -289,6 +289,7 @@ do
     end
 
     this.keys = {
+        r = function() this.pending_selection = math.random(1, #albums) end,
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
         UP = function() increase_pending(-this.gallery.geometry.columns) end,
@@ -578,7 +579,7 @@ do
 
         set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
         if this.is_active then
-            redraw_background()
+            redraw_background(focus and background_focus or background_idle)
             redraw_elapsed()
             redraw_times()
             redraw_chapters()
@@ -671,6 +672,7 @@ do
         local fmt = string.format('{\\fs24\\an8\\bord0\\shad0\\clip(%d,%d,%d,%d)}',
             g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2]
         )
+        -- TODO don't draw unnecessary things
         for i, l in ipairs(this.lyrics) do
             a:new_event()
             a:pos(g.position[1] + g.size[1] / 2, g.position[2] - this.offset + (i - 1) * 24)
@@ -680,22 +682,30 @@ do
         ass_changed = true
     end
 
-    local timer = mp.add_periodic_timer(0.5, function()
+    local function autoscroll()
         if not this.autoscrolling or not playing_index then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
         local grace_period = this.track_length / 15
-        local normalized = (mp.get_property_number("time-pos", 0) - grace_period - this.track_start)
-        normalized = normalized  / (this.track_length - 2 * grace_period)
-        normalized = math.max(0, math.min(normalized, 1))
+        local pos = mp.get_property_number("time-pos", 0) - this.track_start
+        if pos < grace_period then
+            normalized = 0
+        elseif pos > this.track_length - grace_period then
+            normalized = 1
+        else
+            normalized = (pos - grace_period) / (this.track_length - 2 * grace_period)
+        end
         this.offset = normalized * this.max_offset
         redraw_lyrics()
-    end)
+    end
+
+    local timer = mp.add_periodic_timer(0.5, autoscroll)
     timer:kill()
 
     this.set_active = function(active)
         this.is_active = active
         if active then
             timer:resume()
+            mp.register_event("seek", function() autoscroll() end)
             mp.observe_property("chapter", "number", function(_, chap)
                 this.offset = 0
                 this.lyrics = {}
@@ -772,6 +782,7 @@ do
         redraw_lyrics()
     end
     this.keys = {
+        a = function() this.autoscrolling = true autoscroll() end,
         UP = function() scroll(-25) end,
         DOWN = function() scroll(25) end,
         WHEEL_UP = function() scroll(-15) end,
@@ -866,6 +877,10 @@ function focus_next_component(backwards)
         focused_component.set_focus(true)
     end
 end
+
+mp.register_event("end-file", function()
+    playing_index = nil
+end)
 
 mp.add_forced_key_binding("TAB", "tab", function() focus_next_component(false) end, { repeatable=true })
 mp.add_forced_key_binding("SHIFT+TAB", "backtab", function() focus_next_component(true) end, { repeatable=true })
