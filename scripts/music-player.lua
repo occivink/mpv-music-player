@@ -963,6 +963,10 @@ mp.register_idle(function()
                 started = true
                 for _, comp in ipairs(active_components) do
                     comp.set_active(true)
+                    if not focused_component then
+                        focused_component = comp
+                        comp.set_focus(true)
+                    end
                 end
             end
         end
