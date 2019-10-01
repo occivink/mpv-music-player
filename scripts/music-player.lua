@@ -517,6 +517,25 @@ do
     end)
     timer:kill()
 
+    local function set_overlay()
+        if not playing_index then return end
+        local album = albums[playing_index]
+        local g = this.geometry
+        mp.commandv("overlay-add",
+            seekbar_overlay_index,
+            tostring(math.floor(g.cover_position[1] + 0.5)),
+            tostring(math.floor(g.cover_position[2] + 0.5)),
+            string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+                album.artist, album.album,
+                g.cover_size[1],
+                g.cover_size[2]),
+            "0",
+            "bgra",
+            tostring(g.cover_size[1]),
+            tostring(g.cover_size[2]),
+            tostring(4*g.cover_size[1]))
+    end
+
     this.set_active = function(active)
         this.is_active = active
         if active then
@@ -524,20 +543,7 @@ do
                 local album = albums[playing_index]
                 mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:')))
                 mp.set_property("vid", "1")
-                mp.commandv("overlay-add",
-                    seekbar_overlay_index,
-                    tostring(math.floor(this.geometry.cover_position[1] + 0.5)),
-                    tostring(math.floor(this.geometry.cover_position[2] + 0.5)),
-                    string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
-                        album.artist, album.album,
-                        this.geometry.cover_size[1],
-                        this.geometry.cover_size[2]),
-                    "0",
-                    "bgra",
-                    tostring(this.geometry.cover_size[1]),
-                    tostring(this.geometry.cover_size[2]),
-                    tostring(4*this.geometry.cover_size[1]))
-
+                set_overlay()
             end)
             mp.observe_property("chapter", nil, function()
                 redraw_chapters()
@@ -588,6 +594,7 @@ do
 
         set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
         if this.is_active then
+            set_overlay()
             redraw_background(focus and background_focus or background_idle)
             redraw_elapsed()
             redraw_times()
