@@ -639,12 +639,17 @@ do
             mp.set_property_number("time-pos", x * this.duration)
         end,
     }
+    local cursor_visible = false
     this.mouse_move = function(mx, my)
         if not playing_index then return end
         local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
-        if x < 0 or y < 0 or x > 1 or y > 1 then return end
-        redraw_times()
-        -- FIXME maybe? the times are not erased when the cursor leaves the
+        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+            redraw_times()
+            cursor_visible = true
+        elseif cursor_visible then
+            redraw_times()
+            cursor_visible = false
+        end
     end
 
     this.idle = function() end
