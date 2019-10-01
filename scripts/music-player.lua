@@ -151,16 +151,22 @@ do
 
     this.pending_selection = nil
 
+    -- not part of the interface
+    this.remove_from_queue = function(index)
+        table.remove(queue, index)
+        if this.gallery.selection > #queue then
+            this.gallery:set_selection(this.gallery.selection - 1)
+        end
+        this.gallery:items_changed()
+    end
+
     local function increase_pending(inc)
         this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
     end
     local function play_from_queue()
         if #queue == 0 then return end
-        play(table.remove(queue, this.gallery.selection))
-        if this.gallery.selection > #queue then
-            this.gallery:set_selection(this.gallery.selection - 1)
-        end
-        this.gallery:items_changed()
+        play(queue[this.gallery.selection])
+        this.remove_from_queue(this.gallery.selection)
     end
 
     this.keys_repeat = {
@@ -188,11 +194,7 @@ do
             local index = this.gallery:index_at(mx, my)
             if not index then return end
             if index == this.gallery.selection then
-                table.remove(queue, index)
-                if this.gallery.selection > #queue then
-                    this.gallery:set_selection(this.gallery.selection - 1)
-                end
-                this.gallery:items_changed()
+                this.remove_from_queue(index)
             else
                 this.pending_selection = index
             end
@@ -905,6 +907,10 @@ mp.register_event("start-file", function()
 end)
 mp.register_event("end-file", function()
     playing_index = nil
+    if #queue > 0 then
+        play(queue[1])
+        queue_component.remove_from_queue(1)
+    end
 end)
 
 mp.add_forced_key_binding("TAB", "tab", function() focus_next_component(false) end, { repeatable=true })
