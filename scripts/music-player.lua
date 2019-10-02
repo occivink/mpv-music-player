@@ -179,6 +179,7 @@ do
         WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         ENTER = function() play_from_queue() end,
+        DEL = function() if #queue > 0 then this.remove_from_queue(this.gallery.selection) end end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
             local index = this.gallery:index_at(mx, my)
@@ -307,9 +308,7 @@ do
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         HOME = function() this.pending_selection = 1 end,
         END = function() this.pending_selection = #albums end,
-        ENTER = function()
-            play_or_queue(this.gallery.selection)
-        end,
+        ENTER = function() play_or_queue(this.gallery.selection) end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
             local index = this.gallery:index_at(mx, my)
@@ -627,10 +626,11 @@ do
     this.keys = {
         PGUP = function() mp.command("no-osd add chapter 1") end,
         PGDWN = function() mp.command("no-osd add chapter -1") end,
+        DEL = function() mp.command("playlist-remove 0") end,
         MBTN_RIGHT = function()
             local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
             if x < 0 or y < 0 or x > 1 or y > 1 then return end
-            mp.commandv("playlist-remove", 0)
+            mp.command("playlist-remove 0")
         end,
         MBTN_LEFT = function()
             if not this.duration then return end
