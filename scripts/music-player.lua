@@ -495,6 +495,11 @@ do
     end
 
     local function redraw_background(color)
+        if not this.is_active then
+            this.ass_text.background = ""
+            ass_changed = true
+            return
+        end
         local a = assdraw.ass_new()
         a:new_event()
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
@@ -534,42 +539,63 @@ do
             tostring(g.cover_size[2]),
             tostring(4*g.cover_size[1]))
     end
+    local function album_prestarted()
+        if not playing_index then return end
+        local album = albums[playing_index]
+        mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:')))
+        print(mp.get_property("external-files"))
+        mp.commandv("rescan-external-files")
+        mp.set_property("vid", "1")
+        set_overlay()
+    end
+    local function album_started()
+        this.duration = mp.get_property_number("duration")
+        this.chapters = mp.get_property_native("chapter-list")
+    end
+    local function album_ended()
+    print("ended")
+        mp.commandv("overlay-remove", seekbar_overlay_index)
+        mp.set_property("vid", "0")
+        mp.set_property("external-files", "")
+        this.duration = nil
+        this.chapters = nil
+        redraw_elapsed()
+        redraw_times()
+        redraw_chapters()
+    end
+    local function seeked()
+        redraw_times()
+        redraw_elapsed()
+    end
 
     this.set_active = function(active)
         this.is_active = active
         if active then
-            mp.register_event("start-file", function()
-                local album = albums[playing_index]
-                mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:')))
-                mp.set_property("vid", "1")
-                set_overlay()
-            end)
-            mp.observe_property("chapter", nil, function()
-                redraw_chapters()
-            end)
-            mp.register_event("seek", function()
-                redraw_times()
-                redraw_elapsed()
-            end)
-            mp.register_event("file-loaded", function()
-                this.duration = mp.get_property_number("duration")
-                this.chapters = mp.get_property_native("chapter-list")
-                redraw_chapters()
-            end)
-            mp.register_event("end-file", function()
-                mp.commandv("overlay-remove", seekbar_overlay_index)
-                mp.set_property("external-files", "")
-                this.duration = nil
-                this.chapters = nil
-                redraw_elapsed()
-                redraw_times()
-                redraw_chapters()
-            end)
+            mp.register_event("start-file", album_prestarted)
+            mp.observe_property("chapter", nil, redraw_chapters)
+            mp.register_event("seek", seeked)
+            mp.register_event("file-loaded", album_started)
+            mp.register_event("end-file", album_ended)
             timer:resume()
-            redraw_background(background_idle)
+            if playing_index then
+                album_prestarted()
+                album_started()
+            end
+            redraw_elapsed()
+            redraw_times()
+            redraw_chapters()
         else
+            mp.unregister_event(album_prestarted)
+            mp.unobserve_property(redraw_chapters)
+            mp.unregister_event(seeked)
+            mp.unregister_event(album_started)
+            mp.unregister_event(album_ended)
             timer:kill()
+            if playing_index then
+                album_ended()
+            end
         end
+        redraw_background(background_idle)
     end
     this.active = function() return this.is_active end
     this.set_focus = function(focus)
@@ -697,6 +723,11 @@ do
     }
 
     local function redraw_background(color)
+        if not this.is_active then
+            this.ass_text.background = ""
+            ass_changed = true
+            return
+        end
         local a = assdraw.ass_new()
         a:new_event()
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
@@ -744,53 +775,64 @@ do
     local timer = mp.add_periodic_timer(0.5, autoscroll)
     timer:kill()
 
+    local function fetch_lyrics(_, chap)
+        this.offset = 0
+        this.lyrics = {}
+        redraw_lyrics()
+        if not chap then return end
+        chap = math.max(chap + 1, 1)
+        local chapters = mp.get_property_native("chapter-list")
+        this.track_start = chapters[chap].time
+        if chap == #chapters then
+            this.track_length = mp.get_property_number("duration") - chapters[chap].time
+        else
+            this.track_length = chapters[chap + 1].time - chapters[chap].time
+        end
+        local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
+        local album = albums[playing_index]
+        local f = io.open(string.format("%s/%s - %s/%s.lyr",
+            opts.lyrics_dir,
+            album.artist,
+            album.album,
+            title), "r")
+        if not f then
+            msg.warn("Cannot open lyrics file")
+            return
+        end
+        this.lyrics[1] = ""
+        for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
+            this.lyrics[#this.lyrics + 1] = line
+        end
+        f:close()
+        this.lyrics[#this.lyrics + 1] = ""
+        this.autoscrolling = true
+        this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
+        autoscroll()
+    end
+
+    local function clear_lyrics()
+        this.lyrics = {}
+        redraw_lyrics()
+    end
+
     this.set_active = function(active)
         this.is_active = active
         if active then
             timer:resume()
             mp.register_event("seek", autoscroll)
-            mp.observe_property("chapter", "number", function(_, chap)
-                this.offset = 0
-                this.lyrics = {}
-                redraw_lyrics()
-                if not chap then return end
-                chap = math.max(chap + 1, 1)
-                local chapters = mp.get_property_native("chapter-list")
-                this.track_start = chapters[chap].time
-                if chap == #chapters then
-                    this.track_length = mp.get_property_number("duration") - chapters[chap].time
-                else
-                    this.track_length = chapters[chap + 1].time - chapters[chap].time
-                end
-                local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
-                local album = albums[playing_index]
-                local f = io.open(string.format("%s/%s - %s/%s.lyr",
-                    opts.lyrics_dir,
-                    album.artist,
-                    album.album,
-                    title), "r")
-                if not f then
-                    msg.warn("Cannot open lyrics file")
-                    return
-                end
-                this.lyrics[1] = ""
-                for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
-                    this.lyrics[#this.lyrics + 1] = line
-                end
-                f:close()
-                this.lyrics[#this.lyrics + 1] = ""
-                this.autoscrolling = true
-                this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
-
-                redraw_lyrics()
-            end)
-            mp.register_event("end-file", function()
-                this.lyrics = {}
-                redraw_lyrics()
-            end)
+            mp.observe_property("chapter", "number", fetch_lyrics)
+            mp.register_event("end-file", clear_lyrics)
             redraw_background(background_idle)
+            local chap = mp.get_property_number("chapter")
+            fetch_lyrics(nil, chap)
+            this.autoscroll = true
         else
             timer:kill()
+            clear_lyrics()
+            redraw_background(background_idle)
+            mp.unregister_event(autoscroll)
+            mp.unobserve_property(fetch_lyrics)
+            mp.unregister_event(clear_lyrics)
         end
     end
     this.active = function()
@@ -863,20 +905,6 @@ function set_video_position(x, y, w, h)
     --end
 end
 
-local components = {
-    albums_component,
-    queue_component,
-    now_playing_component,
-    lyrics_component,
-}
-local active_components = {
-    albums_component,
-    lyrics_component,
-    queue_component,
-    now_playing_component,
-}
-local focused_component = nil
-
 function play(album_index)
     local album = albums[album_index]
     local files = utils.readdir(album.dir)
@@ -891,30 +919,107 @@ function play(album_index)
     last_index = album_index
 end
 
-local all_keys = {}
-for _, comp in ipairs(components) do
-    for key, _ in pairs(comp.keys) do
-        all_keys[key] = true
-    end
-    for key, _ in pairs(comp.keys_repeat) do
-        all_keys[key] = true
+local components = {
+    albums_component,
+    queue_component,
+    now_playing_component,
+    lyrics_component,
+}
+local layouts = {
+    EMPTY = {},
+    BROWSE = {
+        albums_component,
+        queue_component,
+    },
+    PLAYING = {
+        now_playing_component,
+        lyrics_component,
+    },
+}
+local active_layout = "EMPTY"
+
+function layout_geometry(ww, wh)
+    local ww, wh = mp.get_osd_size()
+    local x = global_offset
+    local y = global_offset
+    local w = ww - 2 * global_offset
+    local h = wh - 2 * global_offset
+
+    if active_layout == "BROWSE" then
+        queue_component.set_geometry(x + w - 200, y, 200, h)
+        w = w - 200 - global_offset
+
+        albums_component.set_geometry(x, y, w, h)
+    elseif active_layout == "PLAYING" then
+        now_playing_component.set_geometry(x, y, w, 180)
+        y = y + 180 + global_offset
+        h = h - (180 + global_offset)
+
+        local lyrics_w = math.min(w, math.max(600, w / 3))
+        lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
+    elseif active_layout == "EMPTY" then
+    else
+        assert(false)
     end
 end
-for key, _ in pairs(all_keys) do
-    mp.add_forced_key_binding(key, "bind-" .. key, function(table)
-        if not focused_component then return end
-        if table["event"] == "down" then
-            local func = focused_component.keys_repeat[key] or focused_component.keys[key]
-            if func then func() end
-        elseif table["event"] == "repeat" then
-            func = focused_component.keys_repeat[key]
-            if func then func() end
+
+function set_active_layout(layout)
+    if active_layout == layout then return end
+    local deactivate = {}
+    local prev_components = layouts[active_layout]
+    for _, comp in ipairs(prev_components) do
+        deactivate[comp] = true
+    end
+    active_layout = layout
+    layout_geometry()
+    local components = layouts[active_layout]
+    for _, comp in ipairs(components) do
+        if deactivate[comp] then
+            deactivate[comp] = nil
+        else
+            comp.set_active(true)
         end
-    end, { repeatable=true, complex=true })
+    end
+    for comp, _ in pairs(deactivate) do
+        if focused_component == comp then
+            focused_component.set_focus(false)
+            focused_component = nil
+        end
+        comp.set_active(false)
+    end
+    if not focused_component and #components > 0 then
+        components[1].set_focus(true)
+        focused_component = components[1]
+    end
+end
+
+do
+    local all_keys = {}
+    for _, comp in ipairs(components) do
+        for key, _ in pairs(comp.keys) do
+            all_keys[key] = true
+        end
+        for key, _ in pairs(comp.keys_repeat) do
+            all_keys[key] = true
+        end
+    end
+    for key, _ in pairs(all_keys) do
+        mp.add_forced_key_binding(key, "bind-" .. key, function(table)
+            if not focused_component then return end
+            if table["event"] == "down" then
+                local func = focused_component.keys_repeat[key] or focused_component.keys[key]
+                if func then func() end
+            elseif table["event"] == "repeat" then
+                func = focused_component.keys_repeat[key]
+                if func then func() end
+            end
+        end, { repeatable=true, complex=true })
+    end
 end
 
 function focus_next_component(backwards)
-    if not focused_component and #active_components > 0 then
+    local active_components = layouts[active_layout]
+    if not focused_component then
         focused_component = active_components[1]
         focused_component.set_focus(true)
     else
@@ -957,7 +1062,7 @@ local mouse_moved = false
 mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
 
 function component_from_pos(x, y)
-    for _, comp in ipairs(active_components) do
+    for _, comp in ipairs(layouts[active_layout]) do
         local nx, ny = normalized_coordinates({x, y}, {comp.position()}, {comp.size()})
         if nx >= 0 and ny >= 0 and nx <= 1 and ny <= 1 then
             return comp
@@ -967,39 +1072,20 @@ function component_from_pos(x, y)
 end
 
 local started = false
+mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
 mp.register_idle(function()
-    for _, comp in ipairs(active_components) do
+    for _, comp in ipairs(layouts[active_layout]) do
         comp.idle()
     end
     if size_changed then
         size_changed = false
         local ww, wh = mp.get_osd_size()
-        if ww and wh and ww * wh > 0 then
-            local x = global_offset
-            local y = global_offset
-            local w = ww - 2 * global_offset
-            local h = wh - 2 * global_offset
-            now_playing_component.set_geometry(x, y + h - 180, w, 180)
-            h = h - 180 - global_offset
-
-            queue_component.set_geometry(x + w - 200, y, 200, h)
-            w = w - 200 - global_offset
-
-            local half = (w - global_offset) / 2
-            lyrics_component.set_geometry(x + half + global_offset, y, half, h)
-            w = w - (half + global_offset)
-
-            albums_component.set_geometry(x, y, w, h)
-
-            if not started then
+        if ww and wh and ww * wh >= 1 then
+            if started then
+                layout_geometry()
+            else
                 started = true
-                for _, comp in ipairs(active_components) do
-                    comp.set_active(true)
-                    if not focused_component then
-                        focused_component = comp
-                        comp.set_focus(true)
-                    end
-                end
+                set_active_layout("BROWSE")
             end
         end
     end
