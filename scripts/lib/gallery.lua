@@ -170,6 +170,13 @@ function gallery_mt.compute_internal_geometry(gallery)
     local g = gallery.geometry
     g.rows = math.floor((g.size[2] - g.min_spacing[2]) / (g.thumbnail_size[2] + g.min_spacing[2]))
     g.columns = math.floor((g.size[1] - g.min_spacing[1]) / (g.thumbnail_size[1] + g.min_spacing[1]))
+    if g.rows == 0 or g.columns == 0 then
+        g.rows = 0
+        g.columns = 0
+        g.effective_spacing[1] = g.size[1]
+        g.effective_spacing[2] = g.size[2]
+        return
+    end
     if (g.rows * g.columns > gallery.config.max_thumbnails) then
         local r = math.sqrt(g.rows * g.columns / gallery.config.max_thumbnails)
         g.rows = math.floor(g.rows / r)
@@ -177,21 +184,19 @@ function gallery_mt.compute_internal_geometry(gallery)
     end
     g.effective_spacing[1] = (g.size[1] - g.columns * g.thumbnail_size[1]) / (g.columns + 1)
     g.effective_spacing[2] = (g.size[2] - g.rows * g.thumbnail_size[2]) / (g.rows + 1)
-    return true
 end
 
 -- makes sure that view.first and view.last are valid with regards to the playlist
 -- and that selection is within the view
 -- to be called after the playlist, view or selection was modified somehow
 function gallery_mt.ensure_view_valid(gallery)
-    if #gallery.items == 0 then
-        gallery.selection = 0
+    local g = gallery.geometry
+    if #gallery.items == 0 or g.rows == 0 or g.columns == 0 then
         gallery.view.first = 0
         gallery.view.last = 0
         return
     end
     local v = gallery.view
-    local g = gallery.geometry
     local selection_row = math.floor((gallery.selection - 1) / g.columns)
     local max_thumbs = g.rows * g.columns
     local changed = false
@@ -384,6 +389,7 @@ function gallery_mt.ass_refresh(gallery, selection, scrollbar, placeholders, bac
 end
 
 function gallery_mt.set_selection(gallery, selection)
+    if not selection or selection ~= selection then return end
     gallery.selection = math.max(1, math.min(selection, #gallery.items))
     if gallery.active then
         if gallery:ensure_view_valid() then
@@ -461,7 +467,7 @@ function gallery_mt.activate(gallery)
     end
     gallery.active = true
     if not gallery.selection then
-        gallery.selection = 1
+        gallery:set_selection(1)
     end
     gallery:compute_internal_geometry()
     gallery:ensure_view_valid()
