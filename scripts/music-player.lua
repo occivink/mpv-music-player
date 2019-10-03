@@ -18,6 +18,7 @@ local background_idle="999999"
 local chapters_marker_width=3
 local chapters_marker_color="888888"
 local cursor_bar_width=3
+local seekbar_snap_distance=15
 local cursor_bar_color="BBBBBB"
 local background_opacity= "BB"
 local waveform_padding_proportion=2/3
@@ -408,7 +409,6 @@ do
             end
         end
         local time_width = 65
-        local snap_within = 10
 
         local g = this.geometry
         local a = assdraw.ass_new()
@@ -441,7 +441,7 @@ do
                 cursor_x = mx
                 for _, chap in ipairs(this.chapters) do
                     local chap_x = g.waveform_position[1] + chap.time / this.duration * g.waveform_size[1]
-                    if math.abs(chap_x - cursor_x) < snap_within then
+                    if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
                         cursor_x = chap_x
                     end
                 end
@@ -634,9 +634,29 @@ do
         end,
         MBTN_LEFT = function()
             if not this.duration then return end
-            local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
-            if x < 0 or y < 0 or x > 1 or y > 1 then return end
-            mp.set_property_number("time-pos", x * this.duration)
+            local mouse_pos = {mp.get_mouse_pos()}
+            local x, y = normalized_coordinates(mouse_pos, this.geometry.waveform_position, this.geometry.waveform_size)
+            if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+                local snap_chap = nil
+                local min_dist = nil
+                for _, chap in ipairs(this.chapters) do
+                    local dist = math.abs(x - chap.time / this.duration)
+                    if dist * this.geometry.waveform_size[1] < seekbar_snap_distance then
+                        if not snap_chap or dist < min_dist then
+                            snap_chap = chap.time
+                            min_dist = dist
+                        end
+                    end
+                end
+                mp.set_property_number("time-pos", snap_chap or x * this.duration)
+                return
+            end
+            local x, y = normalized_coordinates(mouse_pos, this.geometry.cover_position, this.geometry.cover_size)
+            if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+                local pause = mp.get_property_bool("pause")
+                mp.set_property_bool("pause", not pause)
+                return
+            end
         end,
     }
     local cursor_visible = false
