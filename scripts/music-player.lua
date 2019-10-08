@@ -1,3 +1,4 @@
+local client = require 'socket.unix'()
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
@@ -9,7 +10,19 @@ local opts = {
     waveforms_dir = "waveform",
     lyrics_dir = "lyrics",
     albums_file = "", -- for optimization purposes
+    socket = "bob",
 }
+
+if not client:connect(opts.socket) then
+    msg.error("Cannot connect")
+    return
+end
+local function send_to_server(array)
+    client:send(string.format("%s\n", utils.format_json({ command = array })))
+    local rep, err = client:receive()
+    if err then print(err) end
+end
+send_to_server({"disable_event", "all"})
 
 -- CONFIG
 local global_offset = 25
@@ -33,11 +46,32 @@ local ass_changed = false
 
 local seekbar_overlay_index = 0
 
-local playing_index = nil
-local last_index = nil
-
 local albums = {}
 local queue = {}
+
+properties = {
+    ["path"] = nil,
+    ["playlist"] = {},
+    ["pause"] = false,
+    ["time-pos"] = nil,
+    ["chapter"] = nil,
+    ["chapter-list"] = {},
+    ["duration"] = nil,
+    ["mute"] = false,
+}
+
+local function album_from_path()
+    local path = properties["path"]
+    if not path then return nil end
+    if string.find(path, "^edl://") then
+        local s, e = string.find(path, "%%%d+%%")
+        local len = tonumber(string.sub(path, s + 1, e - 1))
+        local track_path = string.sub(path, e + 1, e + len)
+        local album, year, artist = string.match(track_path, ".*/(.-)/(%d%d%d%d) %- (.-)/.-")
+        -- TODO
+    end
+    return nil
+end
 
 if opts.albums_file == "" then
     local artists = utils.readdir(opts.root_dir)
@@ -132,7 +166,6 @@ do
             this.gallery:deactivate();
         end
     end
-    this.active = function() return gallery.active end
     this.set_focus = function(focus)
         this.gallery.config.background_color = focus and background_focus or background_idle
         this.gallery:ass_refresh(false, false, false, true)
@@ -170,6 +203,9 @@ do
         this.remove_from_queue(this.gallery.selection)
     end
 
+    this.prop_changed = {
+        ["playlist"] = function() print("TODO") end
+    }
     this.keys_repeat = {
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
@@ -260,7 +296,6 @@ do
             this.gallery:deactivate();
         end
     end
-    this.active = function() return gallery.active end
     this.set_focus = function(focus)
         this.gallery.config.background_color = focus and background_focus or background_idle
         this.gallery:ass_refresh(false, false, false, true)
@@ -280,23 +315,11 @@ do
 
     this.pending_selection = nil
 
-    -- TODO it's not so nice that this component knows about the queue
-    local function play_or_queue(index)
-        if playing_index == nil then
-            play(index)
-        else
-            queue[#queue + 1] = index
-            queue_component.gallery:items_changed()
-            if #queue == 1 then
-                queue_component.gallery:set_selection(1)
-            end
-        end
-    end
-
     local function increase_pending(inc)
         this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
     end
 
+    this.prop_changed = {}
     this.keys_repeat = {
         r = function() this.pending_selection = math.random(1, #albums) end,
         LEFT = function() increase_pending(-1) end,
@@ -309,13 +332,13 @@ do
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         HOME = function() this.pending_selection = 1 end,
         END = function() this.pending_selection = #albums end,
-        ENTER = function() play_or_queue(this.gallery.selection) end,
+        ENTER = function() play(this.gallery.selection) end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
             local index = this.gallery:index_at(mx, my)
             if not index then return end
             if index == this.gallery.selection then
-                play_or_queue(index)
+                play(index)
             else
                 this.gallery:set_selection(index)
             end
@@ -351,12 +374,12 @@ do
         chapters = "",
         text = "",
     }
-    this.is_active = false
-    this.duration = nil
-    this.chapters = nil
+    this.active = false
 
     local function redraw_chapters()
-        if not this.chapters then
+        local duration = properties["duration"]
+        local chapters = properties["chapter-list"]
+        if not duration or #chapters == 0 then
             this.ass_text.chapters = ""
             ass_changed = true
             return
@@ -370,8 +393,8 @@ do
         local g = this.geometry
         local y1 = g.waveform_position[2]
         local y2 = y1 + g.waveform_size[2]
-        for _, chap in ipairs(this.chapters) do
-            local x = g.waveform_position[1] + g.waveform_size[1] * (chap.time / this.duration)
+        for _, chap in ipairs(chapters) do
+            local x = g.waveform_position[1] + g.waveform_size[1] * (chap.time / duration)
             a:rect_cw(x - w, y1, x + w, y2)
         end
         local x = g.waveform_position[1] + g.waveform_size[1]
@@ -379,21 +402,24 @@ do
         a:new_event()
         a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
         a:append('{\\bord0\\an4}')
-        local chapnum = mp.get_property_number("chapter", 0) + 1
-        if chapnum <= 0 then chapnum = 1 end
-        local chap = this.chapters[chapnum]
-        local title = string.match(chap.title, ".*/%d+ (.*)%..-")
-        local duration = chapnum == #this.chapters and this.duration - chap.time or this.chapters[chapnum + 1].time - chap.time
-        local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chapnum, #this.chapters, mp.format_time(duration, "%m:%S"))
-        local album = albums[playing_index]
-        text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
-        a:append(text)
+
+        local chap = math.max(0, properties["chapter"] or 0) + 1
+        local chapter = chapters[chap]
+        local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
+        local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
+        local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chap, #chapters, mp.format_time(track_duration, "%m:%S"))
+        local album = album_from_path()
+        if album then
+            text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
+            a:append(text)
+        end
         this.ass_text.chapters = a.text
         ass_changed = true
     end
 
     local function redraw_times()
-        if not playing_index or not this.duration then
+        local duration = properties["duration"]
+        if not duration then
             if this.ass_text.times ~= "" then
                 this.ass_text.times = ""
                 ass_changed = true
@@ -414,7 +440,7 @@ do
         local a = assdraw.ass_new()
         local show_time_at = function(x)
             if not x then return end
-            local time = (x - g.waveform_position[1]) / g.waveform_size[1] * this.duration
+            local time = (x - g.waveform_position[1]) / g.waveform_size[1] * duration
             local align = "8"
             if math.abs(x - g.waveform_position[1]) < (time_width / 2) then
                 align = "7"
@@ -439,17 +465,17 @@ do
             local ty = my - g.waveform_position[2]
             if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
                 cursor_x = mx
-                for _, chap in ipairs(this.chapters) do
-                    local chap_x = g.waveform_position[1] + chap.time / this.duration * g.waveform_size[1]
+                for _, chap in ipairs(properties["chapter-list"]) do
+                    local chap_x = g.waveform_position[1] + chap.time / duration * g.waveform_size[1]
                     if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
                         cursor_x = chap_x
                     end
                 end
             end
         end
-        local pos = mp.get_property_number("time-pos")
-        if pos and this.duration then
-            current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / this.duration)
+        local pos = properties["time-pos"]
+        if pos and duration then
+            current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / duration)
         end
 
         -- cursor > current > end
@@ -472,8 +498,9 @@ do
     end
 
     local function redraw_elapsed()
-        local pos = mp.get_property_number("time-pos")
-        if not this.duration or not pos then
+        local pos = properties["time-pos"]
+        local duration = properties["duration"]
+        if not duration or not pos then
             if this.ass_text.elapsed ~= "" then
                 this.ass_text.elapsed = ""
                 ass_changed = true
@@ -488,14 +515,14 @@ do
         local y1 = this.geometry.waveform_position[2]
         local y2 = y1 + this.geometry.waveform_size[2]
         local x1 = this.geometry.waveform_position[1]
-        local x2 = x1 + this.geometry.waveform_size[1] * (pos / this.duration)
+        local x2 = x1 + this.geometry.waveform_size[1] * (pos / duration)
         a:rect_cw(x1, y1, x2, y2)
         this.ass_text.elapsed = a.text
         ass_changed = true
     end
 
     local function redraw_background(color)
-        if not this.is_active then
+        if not this.active then
             this.ass_text.background = ""
             ass_changed = true
             return
@@ -515,15 +542,9 @@ do
         ass_changed = true
     end
 
-    local timer = mp.add_periodic_timer(0.5, function()
-        redraw_elapsed()
-        redraw_times()
-    end)
-    timer:kill()
-
     local function set_overlay()
-        if not playing_index then return end
-        local album = albums[playing_index]
+        local album = album_from_path()
+        if not album then return end
         local g = this.geometry
         mp.commandv("overlay-add",
             seekbar_overlay_index,
@@ -539,65 +560,14 @@ do
             tostring(g.cover_size[2]),
             tostring(4*g.cover_size[1]))
     end
-    local function album_prestarted()
-        if not playing_index then return end
-        local album = albums[playing_index]
-        mp.set_property("external-files", string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:')))
-        print(mp.get_property("external-files"))
-        mp.commandv("rescan-external-files")
-        mp.set_property("vid", "1")
-        set_overlay()
-    end
-    local function album_started()
-        this.duration = mp.get_property_number("duration")
-        this.chapters = mp.get_property_native("chapter-list")
-    end
-    local function album_ended()
-    print("ended")
-        mp.commandv("overlay-remove", seekbar_overlay_index)
-        mp.set_property("vid", "0")
-        mp.set_property("external-files", "")
-        this.duration = nil
-        this.chapters = nil
+
+    this.set_active = function(active)
+        this.active = active
         redraw_elapsed()
         redraw_times()
         redraw_chapters()
-    end
-    local function seeked()
-        redraw_times()
-        redraw_elapsed()
-    end
-
-    this.set_active = function(active)
-        this.is_active = active
-        if active then
-            mp.register_event("start-file", album_prestarted)
-            mp.observe_property("chapter", nil, redraw_chapters)
-            mp.register_event("seek", seeked)
-            mp.register_event("file-loaded", album_started)
-            mp.register_event("end-file", album_ended)
-            timer:resume()
-            if playing_index then
-                album_prestarted()
-                album_started()
-            end
-            redraw_elapsed()
-            redraw_times()
-            redraw_chapters()
-        else
-            mp.unregister_event(album_prestarted)
-            mp.unobserve_property(redraw_chapters)
-            mp.unregister_event(seeked)
-            mp.unregister_event(album_started)
-            mp.unregister_event(album_ended)
-            timer:kill()
-            if playing_index then
-                album_ended()
-            end
-        end
         redraw_background(background_idle)
     end
-    this.active = function() return this.is_active end
     this.set_focus = function(focus)
         redraw_background(focus and background_focus or background_idle)
     end
@@ -618,7 +588,7 @@ do
         g.times_position = { g.text_position[1], g.waveform_position[2] + g.waveform_size[2] }
 
         set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
-        if this.is_active then
+        if this.active then
             set_overlay()
             redraw_background(focus and background_focus or background_idle)
             redraw_elapsed()
@@ -634,39 +604,47 @@ do
         return this.geometry.size[1], this.geometry.size[2]
     end
     this.ass = function()
-        return table.concat({
+        return this.active and table.concat({
             this.ass_text.background,
             this.ass_text.elapsed,
             this.ass_text.times,
             this.ass_text.chapters,
             this.ass_text.text,
-        }, "\n")
+        }, "\n") or ""
     end
 
+    this.prop_changed = {
+        ["path"] = function() print("TODO") end,
+        ["chapter-list"] = function() redraw_chapters() end,
+        ["time-pos"] = function() redraw_elapsed() redraw_times() end,
+        ["duration"] = function() redraw_chapters() redraw_elapsed() end,
+    }
     this.keys_repeat = {
-        UP = function() mp.command("no-osd seek 30 exact") end,
-        DOWN = function() mp.command("no-osd seek -30 exact") end,
-        LEFT = function() mp.command("no-osd seek -5 exact") end,
-        RIGHT = function() mp.command("no-osd seek 5 exact") end,
+        UP = function() send_to_server({"seek", "30", "exact"}) end,
+        DOWN = function() send_to_server({"seek", "-30", "exact"}) end,
+        LEFT = function() send_to_server({"seek", "-5", "exact"}) end,
+        RIGHT = function() send_to_server({"seek", "5", "exact"}) end,
     }
     this.keys = {
-        PGUP = function() mp.command("no-osd add chapter 1") end,
-        PGDWN = function() mp.command("no-osd add chapter -1") end,
-        DEL = function() mp.command("playlist-remove 0") end,
+        PGUP = function() send_to_server({"add", "chapter", "1"}) end,
+        PGDWN = function() send_to_server({"add", "chapter", "-1"}) end,
+        DEL = function() send_to_server({"playlist-remove", "0"}) end,
         MBTN_RIGHT = function()
             local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
             if x < 0 or y < 0 or x > 1 or y > 1 then return end
-            mp.command("playlist-remove 0")
+            send_to_server({"playlist-remove", "0"})
         end,
         MBTN_LEFT = function()
-            if not this.duration then return end
+            local duration = properties["duration"]
+            local chapters = properties["chapter-list"]
+            if not duration or not chapters then return end
             local mouse_pos = {mp.get_mouse_pos()}
             local x, y = normalized_coordinates(mouse_pos, this.geometry.waveform_position, this.geometry.waveform_size)
             if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
                 local snap_chap = nil
                 local min_dist = nil
-                for _, chap in ipairs(this.chapters) do
-                    local dist = math.abs(x - chap.time / this.duration)
+                for _, chap in ipairs(chapters) do
+                    local dist = math.abs(x - chap.time / duration)
                     if dist * this.geometry.waveform_size[1] < seekbar_snap_distance then
                         if not snap_chap or dist < min_dist then
                             snap_chap = chap.time
@@ -674,20 +652,19 @@ do
                         end
                     end
                 end
-                mp.set_property_number("time-pos", snap_chap or x * this.duration)
+                send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
                 return
             end
             local x, y = normalized_coordinates(mouse_pos, this.geometry.cover_position, this.geometry.cover_size)
             if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-                local pause = mp.get_property_bool("pause")
-                mp.set_property_bool("pause", not pause)
+                send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
                 return
             end
         end,
     }
     local cursor_visible = false
     this.mouse_move = function(mx, my)
-        if not playing_index then return end
+        if not properties["path"] then return end
         local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             redraw_times()
@@ -712,7 +689,7 @@ do
     this.lyrics = {}
     this.offset = 0
     this.max_offset = 0
-    this.is_active = false
+    this.active = false
     this.has_focus = false
     this.autoscrolling = true
     this.track_start = 0
@@ -723,11 +700,6 @@ do
     }
 
     local function redraw_background(color)
-        if not this.is_active then
-            this.ass_text.background = ""
-            ass_changed = true
-            return
-        end
         local a = assdraw.ass_new()
         a:new_event()
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
@@ -757,10 +729,11 @@ do
     end
 
     local function autoscroll()
-        if not this.autoscrolling or not playing_index then return end
+        local time_pos = properties["time-pos"]
+        if not time_pos then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
         local grace_period = math.max(this.track_length / 15, 20)
-        local pos = mp.get_property_number("time-pos", 0) - this.track_start
+        local pos = time_pos - this.track_start
         if pos < grace_period then
             normalized = 0
         elseif pos > (this.track_length - grace_period) then
@@ -772,24 +745,25 @@ do
         redraw_lyrics()
     end
 
-    local timer = mp.add_periodic_timer(0.5, autoscroll)
-    timer:kill()
-
-    local function fetch_lyrics(_, chap)
+    local function fetch_lyrics()
         this.offset = 0
         this.lyrics = {}
-        redraw_lyrics()
-        if not chap then return end
+        local chapters = properties["chapter-list"]
+        local chap = properties["chapter"]
+        local duration = properties["duration"]
+        local album = album_from_path()
+        if not chapters or not chap or not duration or not album then
+            redraw_lyrics()
+            return
+        end
         chap = math.max(chap + 1, 1)
-        local chapters = mp.get_property_native("chapter-list")
         this.track_start = chapters[chap].time
         if chap == #chapters then
-            this.track_length = mp.get_property_number("duration") - chapters[chap].time
+            this.track_length = duration - chapters[chap].time
         else
             this.track_length = chapters[chap + 1].time - chapters[chap].time
         end
         local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
-        local album = albums[playing_index]
         local f = io.open(string.format("%s/%s - %s/%s.lyr",
             opts.lyrics_dir,
             album.artist,
@@ -816,27 +790,14 @@ do
     end
 
     this.set_active = function(active)
-        this.is_active = active
+        this.active = active
+        redraw_background(background_idle)
         if active then
-            timer:resume()
-            mp.register_event("seek", autoscroll)
-            mp.observe_property("chapter", "number", fetch_lyrics)
-            mp.register_event("end-file", clear_lyrics)
-            redraw_background(background_idle)
-            local chap = mp.get_property_number("chapter")
-            fetch_lyrics(nil, chap)
-            this.autoscroll = true
+            fetch_lyrics()
+            this.autoscrolling = true
         else
-            timer:kill()
             clear_lyrics()
-            redraw_background(background_idle)
-            mp.unregister_event(autoscroll)
-            mp.unobserve_property(fetch_lyrics)
-            mp.unregister_event(clear_lyrics)
         end
-    end
-    this.active = function()
-        return this.is_active
     end
     this.set_focus = function(focus)
         this.has_focus = focus
@@ -845,7 +806,7 @@ do
     this.set_geometry = function(x, y, w, h)
         this.geometry.position = { x, y }
         this.geometry.size = { w, h }
-        if this.is_active then
+        if this.active then
             this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
             this.offset = math.max(0, math.min(this.offset, this.max_offset))
             redraw_background(this.has_focus and background_focus or background_idle)
@@ -859,7 +820,7 @@ do
         return this.geometry.size[1], this.geometry.size[2]
     end
     this.ass = function()
-        return this.ass_text.background .. "\n" .. this.ass_text.text
+        return this.active and this.ass_text.background .. "\n" .. this.ass_text.text or ""
     end
 
     local scroll = function(howmuch)
@@ -867,6 +828,10 @@ do
         this.autoscrolling = false
         redraw_lyrics()
     end
+    this.prop_changed = {
+        ["chapter"] = function() fetch_lyrics() end,
+        ["time-pos"] = function() if this.autoscrolling then autoscroll() end end,
+    }
     this.keys_repeat = {
         a = function() this.autoscrolling = true autoscroll() end,
         UP = function() scroll(-25) end,
@@ -914,9 +879,8 @@ function play(album_index)
         file = album.dir .. "/" .. file
         files[i] = string.format("%%%i%%%s", string.len(file), file)
     end
-    mp.set_property_bool("pause", false)
-    mp.commandv("loadfile", "edl://" .. table.concat(files, ';'))
-    last_index = album_index
+    send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
+    send_to_server({"set_property", "pause", "no"})
 end
 
 local components = {
@@ -1037,19 +1001,6 @@ function focus_next_component(backwards)
     end
 end
 
--- slightly tricky: we rely on the fact that the register_event functions added last are executed first
--- so that other "start-file" listeners see the proper playing_index value
-mp.register_event("start-file", function()
-    playing_index = last_index
-end)
-mp.register_event("end-file", function()
-    playing_index = nil
-    if #queue > 0 then
-        play(queue[1])
-        queue_component.remove_from_queue(1)
-    end
-end)
-
 mp.add_forced_key_binding("TAB", "tab", function() focus_next_component(false) end, { repeatable=true })
 mp.add_forced_key_binding("SHIFT+TAB", "backtab", function() focus_next_component(true) end, { repeatable=true })
 
@@ -1073,6 +1024,23 @@ end
 
 local started = false
 mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
+
+mp.register_script_message("prop-changed", function(name, value)
+    if name == "chapter-list" or name == "playlist" then
+        properties[name] = utils.parse_json(value)
+    elseif name == "mute" or name == "pause" then
+        properties[name] = value == "yes"
+    elseif name == "time-pos" or name == "duration" or name == "chapter" then
+        properties[name] = tonumber(value)
+    else
+        properties[name] = value
+    end
+    for _, comp in ipairs(layouts[active_layout]) do
+        local func = comp.prop_changed[name]
+        if func then func(value) end
+    end
+end)
+
 mp.register_idle(function()
     for _, comp in ipairs(layouts[active_layout]) do
         comp.idle()
