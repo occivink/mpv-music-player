@@ -11,16 +11,20 @@ local opts = {
     lyrics_dir = "lyrics",
     albums_file = "", -- for optimization purposes
     socket = "bob",
+    default_layout = "BROWSE",
 }
 
 if not client:connect(opts.socket) then
-    msg.error("Cannot connect")
+    msg.error("Cannot connect, aborting")
     return
 end
 local function send_to_server(array)
     client:send(string.format("%s\n", utils.format_json({ command = array })))
     local rep, err = client:receive()
-    if err then print(err) end
+    if err then
+        print(err)
+        return
+    end
 end
 send_to_server({"disable_event", "all"})
 
@@ -41,7 +45,6 @@ local time_text_size=24
 local darker_text_color="888888"
 
 -- VARS
-local focus = nil -- 0,1,2,3 is respectively none, gallery_main/lyrics, gallery_queue, seekbar
 local ass_changed = false
 
 local seekbar_overlay_index = 0
@@ -60,15 +63,19 @@ properties = {
     ["mute"] = false,
 }
 
-local function album_from_path()
-    local path = properties["path"]
+local function album_from_path(path)
+    -- TODO rather inefficient, maybe cache path to album?
     if not path then return nil end
     if string.find(path, "^edl://") then
         local s, e = string.find(path, "%%%d+%%")
         local len = tonumber(string.sub(path, s + 1, e - 1))
         local track_path = string.sub(path, e + 1, e + len)
-        local album, year, artist = string.match(track_path, ".*/(.-)/(%d%d%d%d) %- (.-)/.-")
-        -- TODO
+        local artist, year, album = string.match(track_path, ".*/(.-)/(%d%d%d%d) %- (.-)/.-")
+        for index, item in ipairs(albums) do
+            if item.album == album and item.artist == artist then
+                return index, item
+            end
+        end
     end
     return nil
 end
@@ -183,28 +190,48 @@ do
         return this.ass_text
     end
 
-    this.pending_selection = nil
+    local pending_selection = nil
 
     -- not part of the interface
-    this.remove_from_queue = function(index)
-        table.remove(queue, index)
-        if this.gallery.selection > #queue then
-            this.gallery:set_selection(this.gallery.selection - 1)
-        end
-        this.gallery:items_changed()
-    end
 
     local function increase_pending(inc)
-        this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
+        pending_selection = (pending_selection or this.gallery.selection) + inc
+    end
+    local function remove_from_queue()
+        if #queue == 0 then return end
+        -- playlist-remove is 0-indexed, but queue doesn't contain the current one anyway
+        local play_index = this.gallery.selection
+        send_to_server({"playlist-remove", tostring(play_index)})
     end
     local function play_from_queue()
         if #queue == 0 then return end
-        play(queue[this.gallery.selection])
-        this.remove_from_queue(this.gallery.selection)
+        local play_index = this.gallery.selection
+        send_to_server({"playlist-move", tostring(play_index), "0"})
+        send_to_server({"set_property", "playlist-pos", "0"})
+        send_to_server({"playlist-remove", "1"})
     end
 
     this.prop_changed = {
-        ["playlist"] = function() print("TODO") end
+        ["playlist"] = function(val)
+            -- queue = {} is no good because it creates a new object or something
+            local prev_index = queue[this.gallery.selection]
+            local new_sel = nil
+            for i in pairs(queue) do queue[i] = nil end
+            for i = 2, #val do
+                local item = val[i].filename
+                local index = album_from_path(item)
+                queue[#queue + 1] = index
+                if index == prev_index then
+                    new_sel = #queue
+                end
+            end
+            this.gallery:items_changed()
+            if new_sel then
+                this.gallery:set_selection(new_sel)
+            elseif #queue > 0 then
+                this.gallery:set_selection(1)
+            end
+        end
     }
     this.keys_repeat = {
         LEFT = function() increase_pending(-1) end,
@@ -216,7 +243,7 @@ do
         WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
         ENTER = function() play_from_queue() end,
-        DEL = function() if #queue > 0 then this.remove_from_queue(this.gallery.selection) end end,
+        DEL = function() if #queue > 0 then remove_from_queue() end end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
             local index = this.gallery:index_at(mx, my)
@@ -224,7 +251,7 @@ do
             if index == this.gallery.selection then
                 play_from_queue()
             else
-                this.pending_selection = index
+                pending_selection = index
             end
         end,
         MBTN_RIGHT = function()
@@ -232,18 +259,18 @@ do
             local index = this.gallery:index_at(mx, my)
             if not index then return end
             if index == this.gallery.selection then
-                this.remove_from_queue(index)
+                remove_from_queue()
             else
-                this.pending_selection = index
+                pending_selection = index
             end
         end,
     }
     this.mouse_move = function(mx, my) end
 
     this.idle = function()
-        if this.pending_selection then
-            this.gallery:set_selection(this.pending_selection)
-            this.pending_selection = nil
+        if pending_selection then
+            this.gallery:set_selection(pending_selection)
+            pending_selection = nil
         end
     end
 end
@@ -313,15 +340,15 @@ do
         return this.ass_text
     end
 
-    this.pending_selection = nil
+    local pending_selection = nil
 
     local function increase_pending(inc)
-        this.pending_selection = (this.pending_selection or this.gallery.selection) + inc
+        pending_selection = (pending_selection or this.gallery.selection) + inc
     end
 
     this.prop_changed = {}
     this.keys_repeat = {
-        r = function() this.pending_selection = math.random(1, #albums) end,
+        r = function() pending_selection = math.random(1, #albums) end,
         LEFT = function() increase_pending(-1) end,
         RIGHT = function() increase_pending(1) end,
         UP = function() increase_pending(-this.gallery.geometry.columns) end,
@@ -330,8 +357,8 @@ do
     this.keys = {
         WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
         WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
-        HOME = function() this.pending_selection = 1 end,
-        END = function() this.pending_selection = #albums end,
+        HOME = function() pending_selection = 1 end,
+        END = function() pending_selection = #albums end,
         ENTER = function() play(this.gallery.selection) end,
         MBTN_LEFT = function()
             local mx, my = mp.get_mouse_pos()
@@ -347,9 +374,9 @@ do
     this.mouse_move = function(mx, my) end
 
     this.idle = function()
-        if this.pending_selection then
-            this.gallery:set_selection(this.pending_selection)
-            this.pending_selection = nil
+        if pending_selection then
+            this.gallery:set_selection(pending_selection)
+            pending_selection = nil
         end
     end
 end
@@ -408,7 +435,7 @@ do
         local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
         local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
         local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chap, #chapters, mp.format_time(track_duration, "%m:%S"))
-        local album = album_from_path()
+        local _, album = album_from_path(properties["path"])
         if album then
             text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
             a:append(text)
@@ -542,9 +569,22 @@ do
         ass_changed = true
     end
 
+    local function set_waveform()
+        local _, album = album_from_path(properties["path"])
+        if not this.active or not album then
+            mp.commandv("playlist-remove", "current")
+            return
+        end
+        local wavefile = string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:'))
+        mp.commandv("loadfile", wavefile, "replace")
+    end
+
     local function set_overlay()
-        local album = album_from_path()
-        if not album then return end
+        local _, album = album_from_path(properties["path"])
+        if not this.active or not album then
+            mp.commandv("overlay-remove", seekbar_overlay_index)
+            return
+        end
         local g = this.geometry
         mp.commandv("overlay-add",
             seekbar_overlay_index,
@@ -563,6 +603,8 @@ do
 
     this.set_active = function(active)
         this.active = active
+        set_overlay()
+        set_waveform()
         redraw_elapsed()
         redraw_times()
         redraw_chapters()
@@ -614,8 +656,9 @@ do
     end
 
     this.prop_changed = {
-        ["path"] = function() print("TODO") end,
+        ["path"] = function() set_waveform() set_overlay() redraw_chapters() end,
         ["chapter-list"] = function() redraw_chapters() end,
+        ["chapter"] = function() redraw_chapters() end,
         ["time-pos"] = function() redraw_elapsed() redraw_times() end,
         ["duration"] = function() redraw_chapters() redraw_elapsed() end,
     }
@@ -751,8 +794,8 @@ do
         local chapters = properties["chapter-list"]
         local chap = properties["chapter"]
         local duration = properties["duration"]
-        local album = album_from_path()
-        if not chapters or not chap or not duration or not album then
+        local _, album = album_from_path(properties["path"])
+        if #chapters == 0 or not chap or not duration or not album then
             redraw_lyrics()
             return
         end
@@ -1027,14 +1070,13 @@ mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
 
 mp.register_script_message("prop-changed", function(name, value)
     if name == "chapter-list" or name == "playlist" then
-        properties[name] = utils.parse_json(value)
+        value = utils.parse_json(value)
     elseif name == "mute" or name == "pause" then
-        properties[name] = value == "yes"
+        value = (value == "yes")
     elseif name == "time-pos" or name == "duration" or name == "chapter" then
-        properties[name] = tonumber(value)
-    else
-        properties[name] = value
+        value = tonumber(value)
     end
+    properties[name] = value
     for _, comp in ipairs(layouts[active_layout]) do
         local func = comp.prop_changed[name]
         if func then func(value) end
@@ -1053,7 +1095,7 @@ mp.register_idle(function()
                 layout_geometry()
             else
                 started = true
-                set_active_layout("BROWSE")
+                set_active_layout(opts.default_layout)
             end
         end
     end

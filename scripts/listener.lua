@@ -3,7 +3,7 @@ local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
 if not client:connect("bob") then
-    msg.error("Cannot connect")
+    msg.error("Cannot connect, aborting")
     return
 end
 
