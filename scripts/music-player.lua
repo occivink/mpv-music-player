@@ -5,10 +5,10 @@ local msg = require 'mp.msg'
 local gallery = require 'lib/gallery'
 
 local opts = {
-    root_dir = "music",
-    thumbs_dir = "thumbs",
-    waveforms_dir = "waveform",
-    lyrics_dir = "lyrics",
+    root_dir = "/home/omtose/media/music/audio",
+    thumbs_dir = "/home/omtose/media/music/thumbs",
+    waveforms_dir = "/home/omtose/media/music/waveform",
+    lyrics_dir = "/home/omtose/media/music/lyrics",
     albums_file = "", -- for optimization purposes
     socket = "bob",
     default_layout = "BROWSE",
@@ -53,13 +53,13 @@ local albums = {}
 local queue = {}
 
 properties = {
-    ["path"] = nil,
+    ["path"] = "",
     ["playlist"] = {},
     ["pause"] = false,
-    ["time-pos"] = nil,
-    ["chapter"] = nil,
+    ["time-pos"] = -1,
+    ["chapter"] = -1,
     ["chapter-list"] = {},
-    ["duration"] = nil,
+    ["duration"] = -1,
     ["mute"] = false,
 }
 
@@ -202,13 +202,15 @@ do
         -- playlist-remove is 0-indexed, but queue doesn't contain the current one anyway
         local play_index = this.gallery.selection
         send_to_server({"playlist-remove", tostring(play_index)})
+        this.gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
     end
     local function play_from_queue()
         if #queue == 0 then return end
         local play_index = this.gallery.selection
-        send_to_server({"playlist-move", tostring(play_index), "0"})
-        send_to_server({"set_property", "playlist-pos", "0"})
-        send_to_server({"playlist-remove", "1"})
+        --send_to_server({"playlist-move", tostring(play_index), "1"})
+        --send_to_server({"set_property", "playlist-pos", "1"})
+        send_to_server({"script_message", "start_playing", tostring(play_index)})
+        this.gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
     end
 
     this.prop_changed = {
@@ -446,7 +448,7 @@ do
 
     local function redraw_times()
         local duration = properties["duration"]
-        if not duration then
+        if duration == -1 then
             if this.ass_text.times ~= "" then
                 this.ass_text.times = ""
                 ass_changed = true
@@ -527,7 +529,7 @@ do
     local function redraw_elapsed()
         local pos = properties["time-pos"]
         local duration = properties["duration"]
-        if not duration or not pos then
+        if duration == -1 or pos == -1 then
             if this.ass_text.elapsed ~= "" then
                 this.ass_text.elapsed = ""
                 ass_changed = true
@@ -543,6 +545,8 @@ do
         local y2 = y1 + this.geometry.waveform_size[2]
         local x1 = this.geometry.waveform_position[1]
         local x2 = x1 + this.geometry.waveform_size[1] * (pos / duration)
+        print(pos)
+        print(duration)
         a:rect_cw(x1, y1, x2, y2)
         this.ass_text.elapsed = a.text
         ass_changed = true
@@ -656,7 +660,13 @@ do
     end
 
     this.prop_changed = {
-        ["path"] = function() set_waveform() set_overlay() redraw_chapters() end,
+        ["path"] = function()
+            set_waveform()
+            set_overlay()
+            redraw_chapters()
+            redraw_elapsed()
+            redraw_times()
+        end,
         ["chapter-list"] = function() redraw_chapters() end,
         ["chapter"] = function() redraw_chapters() end,
         ["time-pos"] = function() redraw_elapsed() redraw_times() end,
@@ -669,6 +679,7 @@ do
         RIGHT = function() send_to_server({"seek", "5", "exact"}) end,
     }
     this.keys = {
+        SPACE = function() send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"}) end,
         PGUP = function() send_to_server({"add", "chapter", "1"}) end,
         PGDWN = function() send_to_server({"add", "chapter", "-1"}) end,
         DEL = function() send_to_server({"playlist-remove", "0"}) end,
@@ -708,7 +719,7 @@ do
     local cursor_visible = false
     this.mouse_move = function(mx, my)
         if not properties["path"] then return end
-        local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.waveform_position, this.geometry.waveform_size)
+        local x, y = normalized_coordinates({mx, my}, this.geometry.waveform_position, this.geometry.waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             redraw_times()
             cursor_visible = true
@@ -872,6 +883,7 @@ do
         redraw_lyrics()
     end
     this.prop_changed = {
+        ["path"] = function(path) if path == "" then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
         ["time-pos"] = function() if this.autoscrolling then autoscroll() end end,
     }
@@ -923,7 +935,6 @@ function play(album_index)
         files[i] = string.format("%%%i%%%s", string.len(file), file)
     end
     send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
-    send_to_server({"set_property", "pause", "no"})
 end
 
 local components = {
@@ -941,6 +952,9 @@ local layouts = {
     PLAYING = {
         now_playing_component,
         lyrics_component,
+    },
+    PLAYING_SMALL = {
+        now_playing_component,
     },
 }
 local active_layout = "EMPTY"
@@ -964,6 +978,8 @@ function layout_geometry(ww, wh)
 
         local lyrics_w = math.min(w, math.max(600, w / 3))
         lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
+    elseif active_layout == "PLAYING_SMALL" then
+        now_playing_component.set_geometry(x, y, w, 180)
     elseif active_layout == "EMPTY" then
     else
         assert(false)
@@ -1068,22 +1084,33 @@ end
 local started = false
 mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
 
+-- coalesce stuff together
+local props_changed = {}
 mp.register_script_message("prop-changed", function(name, value)
     if name == "chapter-list" or name == "playlist" then
-        value = utils.parse_json(value)
+        value = utils.parse_json(value) or {}
     elseif name == "mute" or name == "pause" then
         value = (value == "yes")
     elseif name == "time-pos" or name == "duration" or name == "chapter" then
-        value = tonumber(value)
+        value = tonumber(value) or -1
+    else
+        value = value or ""
     end
-    properties[name] = value
-    for _, comp in ipairs(layouts[active_layout]) do
-        local func = comp.prop_changed[name]
-        if func then func(value) end
-    end
+    props_changed[name] = value
 end)
 
 mp.register_idle(function()
+    for k, v in pairs(props_changed) do
+        properties[k] = v
+    end
+    for k, v in pairs(props_changed) do
+        for _, comp in ipairs(layouts[active_layout]) do
+            local func = comp.prop_changed[k]
+            if func then func(v) end
+        end
+    end
+    props_changed = {}
+
     for _, comp in ipairs(layouts[active_layout]) do
         comp.idle()
     end
