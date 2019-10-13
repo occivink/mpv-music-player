@@ -2,47 +2,59 @@ local client = require 'socket.unix'()
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
-if not client:connect("bob") then
-    msg.error("Cannot connect, aborting")
-    return
-end
+mp.register_script_message("listener-start", function(server_address, client_script)
+    mp.unregister_script_message("listener-start")
+    if not client:connect(server_address) then
+        msg.error("Cannot connect, aborting")
+        return
+    end
 
-local i = 1
-function listen_to(prop)
-    client:send(string.format("{ \"command\": [\"observe_property_string\", %d, \"%s\"] }\n", i, prop))
-    i = i + 1
-    local rep = client:receive()
-end
-
-listen_to("path")
-listen_to("time-pos")
-listen_to("chapter")
-listen_to("chapter-list")
-listen_to("duration")
-listen_to("pause")
-listen_to("playlist")
-listen_to("mute")
-
-client:settimeout(0.05)
-
-local timer
-timer = mp.add_periodic_timer(0.10, function()
-    while true do
-        local rep, err = client:receive()
-        if err == "timeout" then
-            return
-        elseif err then
-            print(err)
-            timer:kill()
-            return
-        end
-        local json = utils.parse_json(rep)
-        if json["event"] == "property-change" then
-            if json["data"] then
-                mp.commandv("script-message-to", "music_player", "prop-changed", json["name"], json["data"])
-            else
-                mp.commandv("script-message-to", "music_player", "prop-changed", json["name"])
-            end
+    local send_data = function(name, value)
+        if value then
+            mp.commandv("script-message-to", client_script, "prop-changed", name, value)
+        else
+            mp.commandv("script-message-to", client_script, "prop-changed", name)
         end
     end
+
+    for i, prop in ipairs({
+            "path",
+            "time-pos",
+            "chapter",
+            "chapter-list",
+            "duration",
+            "pause",
+            "playlist",
+            "mute",
+        })
+    do
+        client:send(string.format('{ "command": ["observe_property_string", %d, "%s"] }\n', i, prop))
+        local rep = client:receive()
+        client:send(string.format('{ "command": ["get_property_string", "%s"] }\n', prop))
+        rep = client:receive()
+        local json = utils.parse_json(rep)
+        send_data(prop, json["data"])
+    end
+
+    client:settimeout(0.05)
+
+    local timer
+    -- force the idle to run, but not if shutdown is sent
+    timer = mp.add_periodic_timer(0.05, function() end)
+    mp.register_idle(function()
+        while true do
+            local rep, err = client:receive()
+            if err == "timeout" then
+                return
+            elseif err then
+                print(err)
+                timer:kill()
+                return
+            end
+            local json = utils.parse_json(rep)
+            if json["event"] == "property-change" then
+                send_data(json["name"], json["data"])
+            end
+        end
+    end)
 end)

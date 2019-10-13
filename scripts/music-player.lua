@@ -13,6 +13,7 @@ local opts = {
     socket = "bob",
     default_layout = "BROWSE",
 }
+(require 'mp.options').read_options(opts)
 
 if not client:connect(opts.socket) then
     msg.error("Cannot connect, aborting")
@@ -63,9 +64,13 @@ properties = {
     ["mute"] = false,
 }
 
+local edl_album_cache = {}
 local function album_from_path(path)
-    -- TODO rather inefficient, maybe cache path to album?
     if not path then return nil end
+    local cached = edl_album_cache[path]
+    if cached then
+        return cached, albums[cached]
+    end
     if string.find(path, "^edl://") then
         local s, e = string.find(path, "%%%d+%%")
         local len = tonumber(string.sub(path, s + 1, e - 1))
@@ -73,6 +78,7 @@ local function album_from_path(path)
         local artist, year, album = string.match(track_path, ".*/(.-)/(%d%d%d%d) %- (.-)/.-")
         for index, item in ipairs(albums) do
             if item.album == album and item.artist == artist then
+                edl_album_cache[path] = index
                 return index, item
             end
         end
@@ -545,8 +551,6 @@ do
         local y2 = y1 + this.geometry.waveform_size[2]
         local x1 = this.geometry.waveform_position[1]
         local x2 = x1 + this.geometry.waveform_size[1] * (pos / duration)
-        print(pos)
-        print(duration)
         a:rect_cw(x1, y1, x2, y2)
         this.ass_text.elapsed = a.text
         ass_changed = true
@@ -766,6 +770,13 @@ do
     end
 
     local function redraw_lyrics()
+        if #this.lyrics == 0 then
+            if this.ass_text.text ~= "" then
+                this.ass_text.text = ""
+                ass_changed = true
+            end
+            return
+        end
         local g = this.geometry
         local a = assdraw.ass_new()
         a:new_event()
@@ -911,18 +922,14 @@ function set_video_position(x, y, w, h)
     local dist_x = x - (ww - w) / 2
     local pan_x = dist_x / w
 
-    mp.set_property_number("video-aspect", ratio)
+    mp.set_property_number("video-aspect-override", ratio)
     mp.set_property_number("video-zoom", zoom)
     mp.set_property_number("video-pan-y", pan_y)
     mp.set_property_number("video-pan-x", pan_x)
+
     -- doesn't work much better
-    --if playing_index then
-    --    local vf = string.format("scale=w=%s:h=%s,pad=w=%s:h=%s:x=%s:y=%s", w, h, ww, wh, x, y)
-    --    local pos = mp.get_property_number("time-pos")
-    --    mp.set_property("vf", vf)
-    --    mp.set_property("time-pos", "0")
-    --    mp.set_property("time-pos", pos)
-    --end
+    --local vf = string.format("scale=w=%s:h=%s,pad=w=%s:h=%s:x=%s:y=%s", w, h, ww, wh, x, y)
+    --mp.set_property("vf", vf)
 end
 
 function play(album_index)
@@ -1151,4 +1158,15 @@ mp.register_idle(function()
             lyrics_component.ass(),
         }, "\n"))
     end
+end)
+
+local start_time = mp.get_time()
+local start_listener
+start_listener = mp.add_periodic_timer(0.05, function()
+    local time = mp.get_time()
+    if time - start_time > 3 then
+        start_listener:kill()
+        return
+    end
+    mp.commandv("script_message-to", "listener", "listener-start", opts.socket, mp.get_script_name())
 end)
