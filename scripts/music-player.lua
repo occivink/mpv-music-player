@@ -2,13 +2,19 @@ local client = require 'socket.unix'()
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
-local gallery = require 'lib/gallery'
+local lib = mp.find_config_file('scripts/lib')
+if not lib then
+    return
+end
+-- lib can be nil if the folder does not exist or we're in --no-config mode
+package.path = package.path .. ';' .. lib .. '/?.lua;'
+local gallery = require 'gallery'
 
 local opts = {
-    root_dir = "/home/omtose/media/music/audio",
-    thumbs_dir = "/home/omtose/media/music/thumbs",
-    waveforms_dir = "/home/omtose/media/music/waveform",
-    lyrics_dir = "/home/omtose/media/music/lyrics",
+    root_dir = "music",
+    thumbs_dir = "thumbs",
+    waveforms_dir = "waveform",
+    lyrics_dir = "lyrics",
     albums_file = "", -- for optimization purposes
     socket = "bob",
     default_layout = "BROWSE",
@@ -88,6 +94,7 @@ end
 
 if opts.albums_file == "" then
     local artists = utils.readdir(opts.root_dir)
+    if not artists then return end
     table.sort(artists)
     for _, artist in ipairs(artists) do
         local yearalbums = utils.readdir(opts.root_dir .. "/" .. artist)
@@ -684,6 +691,7 @@ do
     }
     this.keys = {
         SPACE = function() send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"}) end,
+        m = function() send_to_server({"set_property", "mute", properties["mute"] and "no" or "yes"}) end,
         PGUP = function() send_to_server({"add", "chapter", "1"}) end,
         PGDWN = function() send_to_server({"add", "chapter", "-1"}) end,
         DEL = function() send_to_server({"playlist-remove", "0"}) end,
@@ -829,13 +837,14 @@ do
             this.track_length = chapters[chap + 1].time - chapters[chap].time
         end
         local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
-        local f = io.open(string.format("%s/%s - %s/%s.lyr",
+        local path = string.format("%s/%s - %s/%s.lyr",
             opts.lyrics_dir,
             album.artist,
             album.album,
-            title), "r")
+            title)
+        local f = io.open(path, "r")
         if not f then
-            msg.warn("Cannot open lyrics file")
+            msg.warn("Cannot open lyrics file " .. path)
             return
         end
         this.lyrics[1] = ""
@@ -955,6 +964,7 @@ local layouts = {
     BROWSE = {
         albums_component,
         queue_component,
+        now_playing_component,
     },
     PLAYING = {
         now_playing_component,
@@ -974,19 +984,19 @@ function layout_geometry(ww, wh)
     local h = wh - 2 * global_offset
 
     if active_layout == "BROWSE" then
+        now_playing_component.set_geometry(x, y + h - 180, w, 180)
+        h = h - 180 - global_offset
         queue_component.set_geometry(x + w - 200, y, 200, h)
         w = w - 200 - global_offset
-
         albums_component.set_geometry(x, y, w, h)
     elseif active_layout == "PLAYING" then
         now_playing_component.set_geometry(x, y, w, 180)
         y = y + 180 + global_offset
         h = h - (180 + global_offset)
-
         local lyrics_w = math.min(w, math.max(600, w / 3))
         lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
     elseif active_layout == "PLAYING_SMALL" then
-        now_playing_component.set_geometry(x, y, w, 180)
+        now_playing_component.set_geometry(x, y, w, h)
     elseif active_layout == "EMPTY" then
     else
         assert(false)
@@ -1040,7 +1050,7 @@ do
                 local func = focused_component.keys_repeat[key] or focused_component.keys[key]
                 if func then func() end
             elseif table["event"] == "repeat" then
-                func = focused_component.keys_repeat[key]
+                local func = focused_component.keys_repeat[key]
                 if func then func() end
             end
         end, { repeatable=true, complex=true })

@@ -29,11 +29,6 @@ mp.register_script_message("listener-start", function(server_address, client_scr
         })
     do
         client:send(string.format('{ "command": ["observe_property_string", %d, "%s"] }\n', i, prop))
-        local rep = client:receive()
-        client:send(string.format('{ "command": ["get_property_string", "%s"] }\n', prop))
-        rep = client:receive()
-        local json = utils.parse_json(rep)
-        send_data(prop, json["data"])
     end
 
     client:settimeout(0.05)
