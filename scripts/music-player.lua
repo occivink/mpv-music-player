@@ -924,7 +924,8 @@ end
 function set_video_position(x, y, w, h)
     local ww, wh = mp.get_osd_size()
     local ratio = w / h
-    local zoom = math.log(w / ww) / math.log(2)
+    local zoom_x = math.log(w / ww) / math.log(2)
+    local zoom_y = math.log(h / wh) / math.log(2)
     local dist_y = y - (wh - h) / 2
     local pan_y = dist_y / h
 
@@ -932,7 +933,7 @@ function set_video_position(x, y, w, h)
     local pan_x = dist_x / w
 
     mp.set_property_number("video-aspect-override", ratio)
-    mp.set_property_number("video-zoom", zoom)
+    mp.set_property_number("video-zoom", math.max(zoom_x, zoom_y))
     mp.set_property_number("video-pan-y", pan_y)
     mp.set_property_number("video-pan-x", pan_x)
 
