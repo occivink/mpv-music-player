@@ -141,6 +141,17 @@ function normalized_coordinates(coord, position, size)
     return (coord[1] - position[1]) / size[1], (coord[2] - position[2]) / size[2]
 end
 
+function setup_bindings(list, component_name, activate)
+    for _, binding in ipairs(list) do
+        local name = component_name .. "_" .. binding[1]
+        if activate then
+            mp.add_forced_key_binding(binding[1], name, binding[2], binding[3])
+        else
+            mp.remove_key_binding(name)
+        end
+    end
+end
+
 local queue_component = {}
 do
     local this = queue_component
@@ -179,33 +190,7 @@ do
         ass_changed = true
     end
 
-    this.set_active = function(active)
-        if active then
-            this.gallery:activate();
-        else
-            this.gallery:deactivate();
-        end
-    end
-    this.set_focus = function(focus)
-        this.gallery.config.background_color = focus and background_focus or background_idle
-        this.gallery:ass_refresh(false, false, false, true)
-    end
-    this.set_geometry = function(x, y, w, h)
-        this.gallery:set_geometry(x, y, w, h)
-    end
-    this.position = function()
-        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
-    end
-    this.size = function()
-        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
-    end
-    this.ass = function()
-        return this.ass_text
-    end
-
     local pending_selection = nil
-
-    -- not part of the interface
 
     local function increase_pending(inc)
         pending_selection = (pending_selection or this.gallery.selection) + inc
@@ -224,6 +209,66 @@ do
         --send_to_server({"set_property", "playlist-pos", "1"})
         send_to_server({"script_message", "start_playing", tostring(play_index)})
         this.gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
+    end
+
+    local function select_or_play()
+        local mx, my = mp.get_mouse_pos()
+        local index = this.gallery:index_at(mx, my)
+        if not index then return end
+        if index == this.gallery.selection then
+            play_from_queue()
+        else
+            pending_selection = index
+        end
+    end
+
+    local function select_or_remove()
+        local mx, my = mp.get_mouse_pos()
+        local index = this.gallery:index_at(mx, my)
+        if not index then return end
+        if index == this.gallery.selection then
+            remove_from_queue()
+        else
+            pending_selection = index
+        end
+    end
+
+    local bindings = {
+        {"LEFT", function() increase_pending(-1) end, {repeatable=true}},
+        {"RIGHT", function() increase_pending(1) end, {repeatable=true}},
+        {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
+        {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
+        {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
+        {"WHEEL_DOWN", function() increase_pending(this.gallery.geometry.columns) end, {}},
+        {"ENTER", function() play_from_queue() end, {}},
+        {"DEL", function() if #queue > 0 then remove_from_queue() end end, {}},
+        {"MBTN_LEFT", function() select_or_play() end, {}},
+        {"MBTN_RIGHT", function() select_or_remove() end, {}},
+    }
+
+    this.set_active = function(active)
+        if active then
+            this.gallery:activate();
+        else
+            this.gallery:deactivate();
+        end
+    end
+    this.set_focus = function(focus)
+        setup_bindings(bindings, "queue", focus)
+        this.gallery.config.background_color = focus and background_focus or background_idle
+        this.gallery:ass_refresh(false, false, false, true)
+    end
+    this.set_geometry = function(x, y, w, h)
+        this.gallery:set_geometry(x, y, w, h)
+    end
+    this.position = function()
+        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
+    end
+    this.size = function()
+        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
+    end
+    this.ass = function()
+        return this.ass_text
     end
 
     this.prop_changed = {
@@ -248,38 +293,7 @@ do
             end
         end
     }
-    this.keys_repeat = {
-        LEFT = function() increase_pending(-1) end,
-        RIGHT = function() increase_pending(1) end,
-        UP = function() increase_pending(-this.gallery.geometry.columns) end,
-        DOWN = function() increase_pending(this.gallery.geometry.columns) end,
-    }
-    this.keys = {
-        WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
-        WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
-        ENTER = function() play_from_queue() end,
-        DEL = function() if #queue > 0 then remove_from_queue() end end,
-        MBTN_LEFT = function()
-            local mx, my = mp.get_mouse_pos()
-            local index = this.gallery:index_at(mx, my)
-            if not index then return end
-            if index == this.gallery.selection then
-                play_from_queue()
-            else
-                pending_selection = index
-            end
-        end,
-        MBTN_RIGHT = function()
-            local mx, my = mp.get_mouse_pos()
-            local index = this.gallery:index_at(mx, my)
-            if not index then return end
-            if index == this.gallery.selection then
-                remove_from_queue()
-            else
-                pending_selection = index
-            end
-        end,
-    }
+
     this.mouse_move = function(mx, my) end
 
     this.idle = function()
@@ -331,6 +345,37 @@ do
         ass_changed = true
     end
 
+    local pending_selection = nil
+
+    local function increase_pending(inc)
+        pending_selection = (pending_selection or this.gallery.selection) + inc
+    end
+
+    local function select_or_queue()
+        local mx, my = mp.get_mouse_pos()
+        local index = this.gallery:index_at(mx, my)
+        if not index then return end
+        if index == this.gallery.selection then
+            play(index)
+        else
+            this.gallery:set_selection(index)
+        end
+    end
+
+    local bindings = {
+        {"r", function() pending_selection = math.random(1, #albums) end, {repeatable=true}},
+        {"LEFT", function() increase_pending(-1) end, {repeatable=true}},
+        {"RIGHT", function() increase_pending(1) end, {repeatable=true}},
+        {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
+        {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
+        {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
+        {"WHEEL_DOWN", function() increase_pending(this.gallery.geometry.columns) end, {}},
+        {"HOME", function() pending_selection = 1 end, {}},
+        {"END", function() pending_selection = #albums end, {}},
+        {"ENTER", function() play(this.gallery.selection) end, {}},
+        {"MBTN_LEFT", function() select_or_queue() end, {}},
+    }
+
     this.set_active = function(active)
         if active then
             this.gallery:activate();
@@ -339,6 +384,7 @@ do
         end
     end
     this.set_focus = function(focus)
+        setup_bindings(bindings, "albums", focus)
         this.gallery.config.background_color = focus and background_focus or background_idle
         this.gallery:ass_refresh(false, false, false, true)
     end
@@ -355,37 +401,7 @@ do
         return this.ass_text
     end
 
-    local pending_selection = nil
-
-    local function increase_pending(inc)
-        pending_selection = (pending_selection or this.gallery.selection) + inc
-    end
-
     this.prop_changed = {}
-    this.keys_repeat = {
-        r = function() pending_selection = math.random(1, #albums) end,
-        LEFT = function() increase_pending(-1) end,
-        RIGHT = function() increase_pending(1) end,
-        UP = function() increase_pending(-this.gallery.geometry.columns) end,
-        DOWN = function() increase_pending(this.gallery.geometry.columns) end,
-    }
-    this.keys = {
-        WHEEL_UP = function() increase_pending(-this.gallery.geometry.columns) end,
-        WHEEL_DOWN = function() increase_pending(this.gallery.geometry.columns) end,
-        HOME = function() pending_selection = 1 end,
-        END = function() pending_selection = #albums end,
-        ENTER = function() play(this.gallery.selection) end,
-        MBTN_LEFT = function()
-            local mx, my = mp.get_mouse_pos()
-            local index = this.gallery:index_at(mx, my)
-            if not index then return end
-            if index == this.gallery.selection then
-                play(index)
-            else
-                this.gallery:set_selection(index)
-            end
-        end,
-    }
     this.mouse_move = function(mx, my) end
 
     this.idle = function()
@@ -616,6 +632,54 @@ do
             tostring(4*g.cover_size[1]))
     end
 
+    local function skip_current_maybe()
+        local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
+        if x < 0 or y < 0 or x > 1 or y > 1 then return end
+        send_to_server({"playlist-remove", "0"})
+    end
+
+    local function seek_or_pause()
+        local duration = properties["duration"]
+        local chapters = properties["chapter-list"]
+        if not duration or not chapters then return end
+        local mouse_pos = {mp.get_mouse_pos()}
+        local x, y = normalized_coordinates(mouse_pos, this.geometry.waveform_position, this.geometry.waveform_size)
+        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+            local snap_chap = nil
+            local min_dist = nil
+            for _, chap in ipairs(chapters) do
+                local dist = math.abs(x - chap.time / duration)
+                if dist * this.geometry.waveform_size[1] < seekbar_snap_distance then
+                    if not snap_chap or dist < min_dist then
+                        snap_chap = chap.time
+                        min_dist = dist
+                    end
+                end
+            end
+            send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
+            return
+        end
+        local x, y = normalized_coordinates(mouse_pos, this.geometry.cover_position, this.geometry.cover_size)
+        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+            send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
+            return
+        end
+    end
+
+    local bindings = {
+        {"UP", function() send_to_server({"seek", "30", "exact"}) end, {repeatable=true}},
+        {"DOWN", function() send_to_server({"seek", "-30", "exact"}) end, {repeatable=true}},
+        {"LEFT", function() send_to_server({"seek", "-5", "exact"}) end, {repeatable=true}},
+        {"RIGHT", function() send_to_server({"seek", "5", "exact"}) end, {repeatable=true}},
+        {"PGUP", function() send_to_server({"add", "chapter", "1"}) end, {}},
+        {"PGDWN", function() send_to_server({"add", "chapter", "-1"}) end, {}},
+        {"SPACE", function() send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"}) end, {}},
+        {"m", function() send_to_server({"set_property", "mute", properties["mute"] and "no" or "yes"}) end, {}},
+        {"DEL", function() send_to_server({"playlist-remove", "0"}) end, {}},
+        {"MBTN_RIGHT", function() skip_current_maybe() end, {}},
+        {"MBTN_LEFT", function() seek_or_pause() end, {}},
+    }
+
     this.set_active = function(active)
         this.active = active
         set_overlay()
@@ -626,6 +690,7 @@ do
         redraw_background(background_idle)
     end
     this.set_focus = function(focus)
+        setup_bindings(bindings, "seekbar", focus)
         redraw_background(focus and background_focus or background_idle)
     end
     this.set_geometry = function(x, y, w, h)
@@ -683,51 +748,7 @@ do
         ["time-pos"] = function() redraw_elapsed() redraw_times() end,
         ["duration"] = function() redraw_chapters() redraw_elapsed() end,
     }
-    this.keys_repeat = {
-        UP = function() send_to_server({"seek", "30", "exact"}) end,
-        DOWN = function() send_to_server({"seek", "-30", "exact"}) end,
-        LEFT = function() send_to_server({"seek", "-5", "exact"}) end,
-        RIGHT = function() send_to_server({"seek", "5", "exact"}) end,
-    }
-    this.keys = {
-        SPACE = function() send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"}) end,
-        m = function() send_to_server({"set_property", "mute", properties["mute"] and "no" or "yes"}) end,
-        PGUP = function() send_to_server({"add", "chapter", "1"}) end,
-        PGDWN = function() send_to_server({"add", "chapter", "-1"}) end,
-        DEL = function() send_to_server({"playlist-remove", "0"}) end,
-        MBTN_RIGHT = function()
-            local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
-            if x < 0 or y < 0 or x > 1 or y > 1 then return end
-            send_to_server({"playlist-remove", "0"})
-        end,
-        MBTN_LEFT = function()
-            local duration = properties["duration"]
-            local chapters = properties["chapter-list"]
-            if not duration or not chapters then return end
-            local mouse_pos = {mp.get_mouse_pos()}
-            local x, y = normalized_coordinates(mouse_pos, this.geometry.waveform_position, this.geometry.waveform_size)
-            if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-                local snap_chap = nil
-                local min_dist = nil
-                for _, chap in ipairs(chapters) do
-                    local dist = math.abs(x - chap.time / duration)
-                    if dist * this.geometry.waveform_size[1] < seekbar_snap_distance then
-                        if not snap_chap or dist < min_dist then
-                            snap_chap = chap.time
-                            min_dist = dist
-                        end
-                    end
-                end
-                send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
-                return
-            end
-            local x, y = normalized_coordinates(mouse_pos, this.geometry.cover_position, this.geometry.cover_size)
-            if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-                send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
-                return
-            end
-        end,
-    }
+
     local cursor_visible = false
     this.mouse_move = function(mx, my)
         if not properties["path"] then return end
@@ -863,6 +884,20 @@ do
         redraw_lyrics()
     end
 
+    local scroll = function(howmuch)
+        this.offset = math.max(0, math.min(this.offset + howmuch, this.max_offset))
+        this.autoscrolling = false
+        redraw_lyrics()
+    end
+
+    local bindings = {
+        {"a", function() this.autoscrolling = true autoscroll() end, {}},
+        {"UP", function() scroll(-25) end, {repeatable=true}},
+        {"DOWN", function() scroll(25) end, {repeatable=true}},
+        {"WHEEL_UP", function() scroll(-15) end, {repeatable=true}},
+        {"WHEEL_DOWN", function() scroll(15) end, {repeatable=true}},
+    }
+
     this.set_active = function(active)
         this.active = active
         redraw_background(background_idle)
@@ -874,9 +909,11 @@ do
         end
     end
     this.set_focus = function(focus)
+        setup_bindings(bindings, "lyrics", focus)
         this.has_focus = focus
         redraw_background(this.has_focus and background_focus or background_idle)
     end
+
     this.set_geometry = function(x, y, w, h)
         this.geometry.position = { x, y }
         this.geometry.size = { w, h }
@@ -897,24 +934,10 @@ do
         return this.active and this.ass_text.background .. "\n" .. this.ass_text.text or ""
     end
 
-    local scroll = function(howmuch)
-        this.offset = math.max(0, math.min(this.offset + howmuch, this.max_offset))
-        this.autoscrolling = false
-        redraw_lyrics()
-    end
     this.prop_changed = {
         ["path"] = function(path) if path == "" then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
         ["time-pos"] = function() if this.autoscrolling then autoscroll() end end,
-    }
-    this.keys_repeat = {
-        a = function() this.autoscrolling = true autoscroll() end,
-        UP = function() scroll(-25) end,
-        DOWN = function() scroll(25) end,
-    }
-    this.keys = {
-        WHEEL_UP = function() scroll(-15) end,
-        WHEEL_DOWN = function() scroll(15) end,
     }
     this.mouse_move = function(mx, my) end
 
@@ -1031,30 +1054,6 @@ function set_active_layout(layout)
     if not focused_component and #components > 0 then
         components[1].set_focus(true)
         focused_component = components[1]
-    end
-end
-
-do
-    local all_keys = {}
-    for _, comp in ipairs(components) do
-        for key, _ in pairs(comp.keys) do
-            all_keys[key] = true
-        end
-        for key, _ in pairs(comp.keys_repeat) do
-            all_keys[key] = true
-        end
-    end
-    for key, _ in pairs(all_keys) do
-        mp.add_forced_key_binding(key, "bind-" .. key, function(table)
-            if not focused_component then return end
-            if table["event"] == "down" then
-                local func = focused_component.keys_repeat[key] or focused_component.keys[key]
-                if func then func() end
-            elseif table["event"] == "repeat" then
-                local func = focused_component.keys_repeat[key]
-                if func then func() end
-            end
-        end, { repeatable=true, complex=true })
     end
 end
 
