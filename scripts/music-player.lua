@@ -2,13 +2,14 @@ local client = require 'socket.unix'()
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
-local lib = mp.find_config_file('scripts/lib')
+
+local lib = mp.find_config_file('scripts/lib.disable')
 if not lib then
     return
 end
 -- lib can be nil if the folder does not exist or we're in --no-config mode
 package.path = package.path .. ';' .. lib .. '/?.lua;'
-local gallery = require 'gallery'
+require 'gallery'
 
 local opts = {
     root_dir = "music",
