@@ -16,7 +16,7 @@ local opts = {
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
     lyrics_dir = "lyrics",
-    albums_file = "", -- for optimization purposes
+    albums_file = '', -- for optimization purposes
     socket = "bob",
     default_layout = "BROWSE",
 }
@@ -66,7 +66,7 @@ local albums = {}
 local queue = {}
 
 properties = {
-    ["path"] = "",
+    ["path"] = '',
     ["playlist"] = {},
     ["pause"] = false,
     ["time-pos"] = -1,
@@ -98,7 +98,7 @@ local function album_from_path(path)
     return nil
 end
 
-if opts.albums_file == "" then
+if opts.albums_file == '' then
     local artists = utils.readdir(opts.root_dir)
     if not artists then return end
     table.sort(artists)
@@ -188,9 +188,9 @@ do
         return 1, "BBBBBB"
     end
     this.gallery.item_to_text = function(index, item)
-        return ""
+        return ''
     end
-    this.ass_text = ""
+    this.ass_text = ''
     this.gallery.ass_show = function(ass)
         this.ass_text = ass
         ass_changed = true
@@ -343,9 +343,9 @@ do
         if index == this.gallery.selection then
             return string.format("%s - %s [%d]", item.artist, item.album, item.year)
         end
-        return ""
+        return ''
     end
-    this.ass_text = ""
+    this.ass_text = ''
     this.gallery.ass_show = function(ass)
         this.ass_text = ass
         ass_changed = true
@@ -368,18 +368,107 @@ do
         end
     end
 
+    local focus_filter = false
+    local filter = ''
+    local cursor = 1
+
+    -- some of this stuff is taken from Rossy's repl.lua
+    local function next_utf8(str, pos)
+        if pos > str:len() then return pos end
+        repeat
+            pos = pos + 1
+        until pos > str:len() or str:byte(pos) < 0x80 or str:byte(pos) > 0xbf
+        return pos
+    end
+    local function prev_utf8(str, pos)
+        if pos <= 1 then return pos end
+        repeat
+            pos = pos - 1
+        until pos <= 1 or str:byte(pos) < 0x80 or str:byte(pos) > 0xbf
+        return pos
+    end
+    local function append_char(c)
+        filter = filter:sub(1, cursor - 1) .. c .. filter:sub(cursor)
+        print(filter)
+        cursor = cursor + #c
+    end
+    local function del_char_left()
+        if cursor <= 1 then return end
+        local prev = prev_utf8(filter, cursor)
+        filter = filter:sub(1, prev - 1) .. filter:sub(cursor)
+        cursor = prev
+        print(filter)
+    end
+    local function del_char_right()
+        if cursor > filter:len() then return end
+        filter = filter:sub(1, cursor - 1) .. filter:sub(next_utf8(filter, cursor))
+        print(filter)
+    end
+    local function handle_left()
+        if focus_filter then
+            cursor = prev_utf8(filter, cursor)
+        else
+            increase_pending(-1)
+        end
+    end
+    local function handle_home()
+        if focus_filter then
+            cursor = 1
+        else
+            pending_selection = 1
+        end
+    end
+    local function handle_end()
+        if focus_filter then
+            cursor = filter:len() + 1
+        else
+            pending_selection = #albums
+        end
+    end
+    local function handle_enter()
+        if focus_filter then
+            focus_filter = false
+        else
+            play(this.gallery.selection)
+        end
+    end
+    local function handle_esc()
+        filter = ''
+        cursor = 1
+        focus_filter = false
+    end
+    local function handle_right()
+        if focus_filter then
+            cursor = next_utf8(filter, cursor)
+        else
+            increase_pending(1)
+        end
+    end
+    local function handle_unicode(table)
+        if table["event"] == "down" or table["event"] == "repeat" then
+            focus_filter = true
+            append_char(table.key_text)
+        end
+    end
+
     local bindings = {
-        {"r", function() pending_selection = math.random(1, #albums) end, {repeatable=true}},
-        {"LEFT", function() increase_pending(-1) end, {repeatable=true}},
-        {"RIGHT", function() increase_pending(1) end, {repeatable=true}},
+        {"ANY_UNICODE", handle_unicode, {complex=true, repeatable=true}},
+        {"BS", del_char_left, {repeatable=true}},
+        {"DEL", del_char_right, {repeatable=true}},
+        {"LEFT", handle_left, {repeatable=true}},
+        {"RIGHT", handle_right, {repeatable=true}},
+        {"CTRL+LEFT", function() end, {repeatable=true}}, -- TODO
+        {"CTRL+RIGHT", function() end, {repeatable=true}}, -- TODO
+        {"ENTER", handle_enter, {}},
+        {"ESC", handle_esc, {}},
+        {"ALT+r", function() pending_selection = math.random(1, #albums) end, {repeatable=true}},
         {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
         {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
         {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
         {"WHEEL_DOWN", function() increase_pending(this.gallery.geometry.columns) end, {}},
-        {"HOME", function() pending_selection = 1 end, {}},
-        {"END", function() pending_selection = #albums end, {}},
-        {"ENTER", function() play(this.gallery.selection) end, {}},
-        {"MBTN_LEFT", function() select_or_queue() end, {}},
+        {"HOME", handle_home, {}},
+        {"END", handle_end, {}},
+        {"MBTN_LEFT", select_or_queue, {}},
     }
 
     this.set_active = function(active)
@@ -432,11 +521,11 @@ do
         times_position = {0, 0},
     }
     this.ass_text = {
-        background = "",
-        elapsed = "",
-        times = "",
-        chapters = "",
-        text = "",
+        background = '',
+        elapsed = '',
+        times = '',
+        chapters = '',
+        text = '',
     }
     this.active = false
 
@@ -444,7 +533,7 @@ do
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
         if not duration or #chapters == 0 then
-            this.ass_text.chapters = ""
+            this.ass_text.chapters = ''
             ass_changed = true
             return
         end
@@ -487,8 +576,8 @@ do
     local function redraw_times()
         local duration = properties["duration"]
         if duration == -1 then
-            if this.ass_text.times ~= "" then
-                this.ass_text.times = ""
+            if this.ass_text.times ~= '' then
+                this.ass_text.times = ''
                 ass_changed = true
             end
             return
@@ -570,8 +659,8 @@ do
         local pos = properties["time-pos"]
         local duration = properties["duration"]
         if duration == -1 or pos == -1 then
-            if this.ass_text.elapsed ~= "" then
-                this.ass_text.elapsed = ""
+            if this.ass_text.elapsed ~= '' then
+                this.ass_text.elapsed = ''
                 ass_changed = true
             end
             return
@@ -592,7 +681,7 @@ do
 
     local function redraw_background(color)
         if not this.active then
-            this.ass_text.background = ""
+            this.ass_text.background = ''
             ass_changed = true
             return
         end
@@ -747,7 +836,7 @@ do
             this.ass_text.times,
             this.ass_text.chapters,
             this.ass_text.text,
-        }, "\n") or ""
+        }, "\n") or ''
     end
 
     this.prop_changed = {
@@ -805,8 +894,8 @@ do
     this.track_start = 0
     this.track_length = 0
     this.ass_text = {
-        background = "",
-        text = "",
+        background = '',
+        text = '',
     }
 
     local function redraw_background(color)
@@ -823,8 +912,8 @@ do
 
     local function redraw_lyrics()
         if #this.lyrics == 0 then
-            if this.ass_text.text ~= "" then
-                this.ass_text.text = ""
+            if this.ass_text.text ~= '' then
+                this.ass_text.text = ''
                 ass_changed = true
             end
             return
@@ -891,12 +980,12 @@ do
             msg.warn("Cannot open lyrics file " .. path)
             return
         end
-        this.lyrics[1] = ""
+        this.lyrics[1] = ''
         for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
             this.lyrics[#this.lyrics + 1] = line
         end
         f:close()
-        this.lyrics[#this.lyrics + 1] = ""
+        this.lyrics[#this.lyrics + 1] = ''
         this.autoscrolling = true
         this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
         autoscroll()
@@ -954,11 +1043,11 @@ do
         return this.geometry.size[1], this.geometry.size[2]
     end
     this.ass = function()
-        return this.active and this.ass_text.background .. "\n" .. this.ass_text.text or ""
+        return this.active and this.ass_text.background .. "\n" .. this.ass_text.text or ''
     end
 
     this.prop_changed = {
-        ["path"] = function(path) if path == "" then clear_lyrics() end end,
+        ["path"] = function(path) if path == '' then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
         ["time-pos"] = function() if this.autoscrolling then autoscroll() end end,
     }
@@ -1134,7 +1223,7 @@ mp.register_script_message("prop-changed", function(name, value)
     elseif name == "time-pos" or name == "duration" or name == "chapter" then
         value = tonumber(value) or -1
     else
-        value = value or ""
+        value = value or ''
     end
     props_changed[name] = value
 end)
@@ -1203,3 +1292,5 @@ start_listener = mp.add_periodic_timer(0.05, function()
     end
     mp.commandv("script_message-to", "listener", "listener-start", opts.socket, mp.get_script_name())
 end)
+
+collectgarbage()
