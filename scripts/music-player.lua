@@ -481,6 +481,9 @@ do
         ass_changed = true
     end
 
+    local left_mouse_button_held = false
+    local scrubbing = false
+
     local function redraw_times()
         local duration = properties["duration"]
         if duration == -1 then
@@ -529,10 +532,12 @@ do
             local ty = my - g.waveform_position[2]
             if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
                 cursor_x = mx
-                for _, chap in ipairs(properties["chapter-list"]) do
-                    local chap_x = g.waveform_position[1] + chap.time / duration * g.waveform_size[1]
-                    if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
-                        cursor_x = chap_x
+                if not scrubbing then
+                    for _, chap in ipairs(properties["chapter-list"]) do
+                        local chap_x = g.waveform_position[1] + chap.time / duration * g.waveform_size[1]
+                        if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
+                            cursor_x = chap_x
+                        end
                     end
                 end
             end
@@ -683,7 +688,11 @@ do
         {"m", function() send_to_server({"set_property", "mute", properties["mute"] and "no" or "yes"}) end, {}},
         {"DEL", function() send_to_server({"playlist-remove", "0"}) end, {}},
         {"MBTN_RIGHT", function() skip_current_maybe() end, {}},
-        {"MBTN_LEFT", function() seek_or_pause() end, {}},
+        {"MBTN_LEFT", function(table)
+                          left_mouse_button_held = (table["event"] == "down")
+                          scrubbing = false
+                          if left_mouse_button_held then seek_or_pause() end
+                      end, {complex=true,repeatable=false}},
     }
 
     this.set_active = function(active)
@@ -757,9 +766,17 @@ do
 
     local cursor_visible = false
     this.mouse_move = function(mx, my)
+        scrubbing = left_mouse_button_held
         if not properties["path"] then return end
         local x, y = normalized_coordinates({mx, my}, this.geometry.waveform_position, this.geometry.waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
+            if scrubbing then
+                local duration = properties["duration"]
+                -- no snapping in this case
+                if duration then
+                    send_to_server({"set_property", "time-pos", tostring(x * duration)})
+                end
+            end
             redraw_times()
             cursor_visible = true
         elseif cursor_visible then
@@ -1111,7 +1128,7 @@ mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
 local props_changed = {}
 mp.register_script_message("prop-changed", function(name, value)
     if name == "chapter-list" or name == "playlist" then
-        value = utils.parse_json(value) or {}
+        value = value and utils.parse_json(value) or {}
     elseif name == "mute" or name == "pause" then
         value = (value == "yes")
     elseif name == "time-pos" or name == "duration" or name == "chapter" then
