@@ -1,4 +1,4 @@
-local client = require 'socket.unix'()
+local socket = require 'socket.unix'
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
@@ -22,10 +22,15 @@ local opts = {
 }
 (require 'mp.options').read_options(opts)
 
-if not client:connect(opts.socket) then
-    msg.error("Cannot connect, aborting")
-    return
+local client = nil
+while true do
+    client = socket()
+    local res, err = client:connect(opts.socket)
+    if res == 1 then break end
+    msg.warn("Could not connect to server, waiting...")
+    mp.command_native({ name = "subprocess", playback_only = false, args = {"sleep", "1"}})
 end
+
 local function send_to_server(array)
     client:send(string.format("%s\n", utils.format_json({ command = array })))
     local rep, err = client:receive()
