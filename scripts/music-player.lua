@@ -98,50 +98,77 @@ local function album_from_path(path)
     return nil
 end
 
-if opts.albums_file == '' then
-    local artists = utils.readdir(opts.root_dir)
-    if not artists then return end
-    table.sort(artists)
-    for _, artist in ipairs(artists) do
-        local yearalbums = utils.readdir(opts.root_dir .. "/" .. artist)
-        table.sort(yearalbums)
-        for _, yearalbum in ipairs(yearalbums) do
-            local year, album = string.match(yearalbum, "^(%d+) %- (.*)$")
-            if year ~= nil and album ~= nil then
+do
+    if opts.albums_file == '' then
+        local artists = utils.readdir(opts.root_dir)
+        if not artists then return end
+        table.sort(artists)
+        for _, artist in ipairs(artists) do
+            local yearalbums = utils.readdir(opts.root_dir .. "/" .. artist)
+            table.sort(yearalbums)
+            for _, yearalbum in ipairs(yearalbums) do
+                local year, album = string.match(yearalbum, "^(%d+) %- (.*)$")
+                if year ~= nil and album ~= nil then
+                    albums[#albums + 1] = {
+                        artist = string.gsub(artist, '\\', '/'),
+                        album = string.gsub(album, '\\', '/'),
+                        year = year,
+                        dir = string.format("%s/%s/%s", opts.root_dir, artist, yearalbum)
+                    }
+                end
+            end
+        end
+    else
+        local f = io.open(opts.albums_file, "r")
+        while true do
+            local line = f:read()
+            if not line then break end
+            local artist, album, year = string.match(line, "^(.-) %- (.-) %[(%d+)]$")
+            if artist and album and year then
                 albums[#albums + 1] = {
-                    artist = string.gsub(artist, '\\', '/'),
-                    album = string.gsub(album, '\\', '/'),
+                    artist = artist,
+                    album = album,
                     year = year,
-                    dir = string.format("%s/%s/%s", opts.root_dir, artist, yearalbum)
+                    dir = string.format("%s/%s/%s - %s", opts.root_dir,
+                        string.gsub(artist, '/', '\\'),
+                        year,
+                        string.gsub(album, '/', '\\'))
                 }
+            else
+                msg.error("Invalid line in albums file: " .. line)
             end
         end
     end
-else
-    local f = io.open(opts.albums_file, "r")
-    while true do
-        local line = f:read()
-        if not line then break end
-        local artist, album, year = string.match(line, "^(.-) %- (.-) %[(%d+)]$")
-        if artist and album and year then
-            albums[#albums + 1] = {
-                artist = artist,
-                album = album,
-                year = year,
-                dir = string.format("%s/%s/%s - %s", opts.root_dir,
-                    string.gsub(artist, '/', '\\'),
-                    year,
-                    string.gsub(album, '/', '\\'))
-            }
-        else
-            msg.error("Invalid line in albums file: " .. line)
+    if #albums == 0 then
+        msg.warn("No albums, exiting")
+        return
+    end
+    local r = {}
+    r['á']='a'  r['à']='a'  r['â']='a'  r['ä']='a'  r['ă']='a'  r['å']='a'  r['æ']='a'
+    r['é']='e'  r['è']='e'  r['ë']='e'  r['ê']='e'
+    r['ï']='i'  r['î']='i'  r['í']='i'  r['ì']='i'
+    r['ó']='o'  r['ò']='o'  r['ô']='o'  r['ö']='o'  r['ø']='o'
+    r['ü']='u'  r['û']='u'  r['ú']='u'  r['ù']='u'
+    r['ð']='d'
+    r['ç']='c'
+    r['þ']='t'  r['ț']='t'
+    r['ș']='s'
+    r['ñ']='n'
+    r['ý']='y'
+
+    local function normalize_name(name)
+        local norm = {}
+        for code in string.gmatch(string.lower(name), '[%z\1-\127\194-\244][\128-\191]*') do
+            norm[#norm + 1] = r[code] or code
         end
+        return table.concat(norm, '')
+    end
+    for _, album in ipairs(albums) do
+        album.artist_normalized = normalize_name(album.artist)
+        album.album_normalized = normalize_name(album.album)
     end
 end
-if #albums == 0 then
-    msg.warn("No albums, exiting")
-    return
-end
+
 
 function normalized_coordinates(coord, position, size)
     return (coord[1] - position[1]) / size[1], (coord[2] - position[2]) / size[2]
@@ -291,12 +318,7 @@ do
                     new_sel = #queue
                 end
             end
-            this.gallery:items_changed()
-            if new_sel then
-                this.gallery:set_selection(new_sel)
-            elseif #queue > 0 then
-                this.gallery:set_selection(1)
-            end
+            this.gallery:items_changed(new_sel or 1)
         end
     }
 
@@ -316,7 +338,21 @@ do
 
     this.gallery = gallery_new()
 
-    this.gallery.items = albums
+    local albums_filtered = {}
+
+    local function add_to_queue(index)
+        local album = albums_filtered[index]
+        local files = utils.readdir(album.dir)
+        if not files then return end
+        table.sort(files)
+        for i, file in ipairs(files) do
+            file = album.dir .. "/" .. file
+            files[i] = string.format("%%%i%%%s", string.len(file), file)
+        end
+        send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
+    end
+
+    this.gallery.items = albums_filtered
     this.gallery.config.always_show_placeholders = false
     this.gallery.config.align_text = true
     this.gallery.config.max_thumbnails = 48
@@ -362,7 +398,7 @@ do
         local index = this.gallery:index_at(mx, my)
         if not index then return end
         if index == this.gallery.selection then
-            play(index)
+            add_to_queue(index)
         else
             this.gallery:set_selection(index)
         end
@@ -371,6 +407,28 @@ do
     local focus_filter = false
     local filter = ''
     local cursor = 1
+
+    local function filter_changed()
+        local filter_processed = string.lower(filter)
+        local prev_focus = albums_filtered[this.gallery.selection]
+        for i = #albums_filtered, 1, -1 do
+            albums_filtered[i] = nil
+        end
+        local new_sel = nil
+        for _, album in ipairs(albums) do
+            if filter_processed == ''
+                or string.find(album.artist_normalized, filter_processed, 1, true)
+                or string.find(album.album_normalized, filter_processed, 1, true)
+                or string.find(album.year, filter_processed, 1, true)
+            then
+                albums_filtered[#albums_filtered + 1] = album
+                if album == prev_focus then new_sel = #albums_filtered end
+            end
+        end
+        this.gallery:items_changed(new_sel or 1)
+    end
+
+    filter_changed()
 
     -- some of this stuff is taken from Rossy's repl.lua
     local function next_utf8(str, pos)
@@ -389,7 +447,7 @@ do
     end
     local function append_char(c)
         filter = filter:sub(1, cursor - 1) .. c .. filter:sub(cursor)
-        print(filter)
+        filter_changed()
         cursor = cursor + #c
     end
     local function del_char_left()
@@ -397,12 +455,12 @@ do
         local prev = prev_utf8(filter, cursor)
         filter = filter:sub(1, prev - 1) .. filter:sub(cursor)
         cursor = prev
-        print(filter)
+        filter_changed()
     end
     local function del_char_right()
         if cursor > filter:len() then return end
         filter = filter:sub(1, cursor - 1) .. filter:sub(next_utf8(filter, cursor))
-        print(filter)
+        filter_changed()
     end
     local function handle_left()
         if focus_filter then
@@ -422,20 +480,21 @@ do
         if focus_filter then
             cursor = filter:len() + 1
         else
-            pending_selection = #albums
+            pending_selection = #albums_filtered
         end
     end
     local function handle_enter()
         if focus_filter then
             focus_filter = false
         else
-            play(this.gallery.selection)
+            add_to_queue(this.gallery.selection)
         end
     end
     local function handle_esc()
         filter = ''
         cursor = 1
         focus_filter = false
+        filter_changed()
     end
     local function handle_right()
         if focus_filter then
@@ -461,7 +520,7 @@ do
         {"CTRL+RIGHT", function() end, {repeatable=true}}, -- TODO
         {"ENTER", handle_enter, {}},
         {"ESC", handle_esc, {}},
-        {"ALT+r", function() pending_selection = math.random(1, #albums) end, {repeatable=true}},
+        {"ALT+r", function() pending_selection = math.random(1, #albums_filtered) end, {repeatable=true}},
         {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
         {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
         {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
@@ -1077,18 +1136,6 @@ function set_video_position(x, y, w, h)
     --mp.set_property("vf", vf)
 end
 
-function play(album_index)
-    local album = albums[album_index]
-    local files = utils.readdir(album.dir)
-    if not files then return end
-    table.sort(files)
-    for i, file in ipairs(files) do
-        file = album.dir .. "/" .. file
-        files[i] = string.format("%%%i%%%s", string.len(file), file)
-    end
-    send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
-end
-
 local components = {
     albums_component,
     queue_component,
@@ -1294,3 +1341,4 @@ start_listener = mp.add_periodic_timer(0.05, function()
 end)
 
 collectgarbage()
+
