@@ -197,8 +197,6 @@ do
     this.gallery.config.overlay_range = 49
     this.gallery.config.background_color = background_idle
     this.gallery.config.background_opacity = background_opacity
-    this.gallery.geometry.min_spacing = {15,30}
-    this.gallery.geometry.thumbnail_size = {150,150}
 
     this.gallery.item_to_overlay_path = function(index, item)
         local album = albums[item]
@@ -292,7 +290,7 @@ do
         this.gallery:ass_refresh(false, false, false, true)
     end
     this.set_geometry = function(x, y, w, h)
-        this.gallery:set_geometry(x, y, w, h)
+        this.gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
     end
     this.position = function()
         return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
@@ -359,8 +357,6 @@ do
     this.gallery.config.overlay_range = 1
     this.gallery.config.background_color = background_idle
     this.gallery.config.background_opacity = background_opacity
-    this.gallery.geometry.min_spacing = {15,30}
-    this.gallery.geometry.thumbnail_size = {150,150}
 
     this.gallery.item_to_overlay_path = function(index, item)
         return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
@@ -543,7 +539,7 @@ do
         this.gallery:ass_refresh(false, false, false, true)
     end
     this.set_geometry = function(x, y, w, h)
-        this.gallery:set_geometry(x, y, w, h)
+        this.gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
     end
     this.position = function()
         return this.gallery.geometry.position[1], this.gallery.geometry.position[2]

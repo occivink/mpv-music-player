@@ -7,26 +7,13 @@ gallery_mt.__index = gallery_mt
 
 function gallery_new()
     local gallery = setmetatable({
-        active = false,
+        -- public, can be modified by user
         items = {},
-        geometry = {
-            position = { 0, 0 },
-            size = { 0, 0 },
-            min_spacing = { 0, 0 },
-            thumbnail_size = { 0, 0 },
-            rows = 0,
-            columns = 0,
-            effective_spacing = { 0, 0 },
-        },
-        view = { -- 1-based indices into the "playlist" array
-            first = 0, -- must be equal to N*columns
-            last = 0, -- must be > first and <= first + rows*columns
-        },
-        overlays = {
-            active = {}, -- array of <=64 strings indicating the file associated to the current overlay (false if nothing)
-            missing = {}, -- associative array of thumbnail path to view index it should be shown at
-        },
-        selection = nil,
+        item_to_overlay_path = function(index, item) return "" end,
+        item_to_thumbnail_params = function(index, item) return "", 0 end,
+        item_to_text = function(index, item) return "", true end,
+        item_to_border = function(index, item) return 0, "" end,
+        ass_show = function(ass) end,
         config = {
             background_color = '333333',
             background_opacity = '33',
@@ -44,6 +31,28 @@ function gallery_new()
             accurate = false,
             generate_thumbnails_with_mpv = false,
         },
+
+        -- private, can be read but should not be modified
+        active = false,
+        geometry = {
+            ok = false,
+            position = { 0, 0 },
+            size = { 0, 0 },
+            min_spacing = { 0, 0 },
+            thumbnail_size = { 0, 0 },
+            rows = 0,
+            columns = 0,
+            effective_spacing = { 0, 0 },
+        },
+        view = { -- 1-based indices into the "playlist" array
+            first = 0, -- must be equal to N*columns
+            last = 0, -- must be > first and <= first + rows*columns
+        },
+        overlays = {
+            active = {}, -- array of <=64 strings indicating the file associated to the current overlay (false if nothing)
+            missing = {}, -- associative array of thumbnail path to view index it should be shown at
+        },
+        selection = nil,
         ass = {
             background = "",
             selection = "",
@@ -52,11 +61,7 @@ function gallery_new()
         },
         generators = {}, -- list of generator scripts
 
-        item_to_overlay_path = function(index, item) return "" end,
-        item_to_thumbnail_params = function(index, item) return "", 0 end,
-        item_to_text = function(index, item) return "", true end,
-        item_to_border = function(index, item) return 0, "" end,
-        ass_show = function(ass) end,
+
     }, gallery_mt)
 
     for i = 1, gallery.config.max_thumbnails do
@@ -170,7 +175,7 @@ function gallery_mt.compute_internal_geometry(gallery)
     local g = gallery.geometry
     g.rows = math.floor((g.size[2] - g.min_spacing[2]) / (g.thumbnail_size[2] + g.min_spacing[2]))
     g.columns = math.floor((g.size[1] - g.min_spacing[1]) / (g.thumbnail_size[1] + g.min_spacing[1]))
-    if g.rows == 0 or g.columns == 0 then
+    if g.rows <= 0 or g.columns <= 0 then
         g.rows = 0
         g.columns = 0
         g.effective_spacing[1] = g.size[1]
@@ -203,9 +208,13 @@ function gallery_mt.ensure_view_valid(gallery)
 
     if v.last >= #gallery.items then
         v.last = #gallery.items
-        last_row = math.floor((v.last - 1) / g.columns)
-        first_row = math.max(0, last_row - g.rows + 1)
-        v.first = 1 + first_row * g.columns
+        if g.rows == 1 then
+            v.first = v.last - g.columns + 1
+        else
+            local last_row = math.floor((v.last - 1) / g.columns)
+            local first_row = math.max(0, last_row - g.rows + 1)
+            v.first = 1 + first_row * g.columns
+        end
         changed = true
     elseif v.first == 0 or v.last == 0 or v.last - v.first + 1 ~= max_thumbs then
         -- special case: the number of possible thumbnails was changed
@@ -225,12 +234,11 @@ function gallery_mt.ensure_view_valid(gallery)
 
     if gallery.selection < v.first then
         -- the selection is now on the first line
-        v.first = selection_row * g.columns + 1
+        v.first = (g.rows == 1) and gallery.selection or selection_row * g.columns + 1
         v.last = math.min(#gallery.items, v.first + max_thumbs - 1)
         changed = true
     elseif gallery.selection > v.last then
-        -- the selection is now on the last line
-        v.last = (selection_row + 1) * g.columns
+        v.last = (g.rows == 1) and gallery.selection or (selection_row + 1) * g.columns
         v.first = math.max(1, v.last - max_thumbs + 1)
         v.last = math.min(#gallery.items, v.last)
         changed = true
@@ -243,6 +251,7 @@ function gallery_mt.refresh_background(gallery)
     local g = gallery.geometry
     local a = assdraw.ass_new()
     a:new_event()
+    a:append('{\\an7}')
     a:append('{\\bord0}')
     a:append('{\\shad0}')
     a:append('{\\1c&' .. gallery.config.background_color .. '}')
@@ -256,10 +265,14 @@ end
 
 function gallery_mt.refresh_placeholders(gallery)
     if not gallery.config.show_placeholders then return end
-    if gallery.view.first == 0 then return end
+    if gallery.view.first == 0 then
+        gallery.ass.placeholders = ""
+        return
+    end
     local g = gallery.geometry
     local a = assdraw.ass_new()
     a:new_event()
+    a:append('{\\an7}')
     a:append('{\\bord0}')
     a:append('{\\shad0}')
     a:append('{\\1c&' .. gallery.config.placeholder_color .. '}')
@@ -308,6 +321,7 @@ function gallery_mt.refresh_scrollbar(gallery)
     x2 = x1 + 4
     local scrollbar = assdraw.ass_new()
     scrollbar:new_event()
+    scrollbar:append('{\\an7}')
     scrollbar:append('{\\bord0}')
     scrollbar:append('{\\shad0}')
     scrollbar:append('{\\1c&AAAAAA&}')
@@ -329,6 +343,7 @@ function gallery_mt.refresh_selection(gallery)
     local draw_frame = function(index, size, color)
         local x, y = gallery:view_index_position(index - v.first)
         selection_ass:new_event()
+        selection_ass:append('{\\an7}')
         selection_ass:append('{\\bord' .. size ..'}')
         selection_ass:append('{\\3c&'.. color ..'&}')
         selection_ass:append('{\\1a&FF&}')
@@ -390,7 +405,9 @@ end
 
 function gallery_mt.set_selection(gallery, selection)
     if not selection or selection ~= selection then return end
-    gallery.selection = math.max(1, math.min(selection, #gallery.items))
+    local new_selection = math.max(1, math.min(selection, #gallery.items))
+    if gallery.selection == new_selection then return end
+    gallery.selection = new_selection
     if gallery.active then
         if gallery:ensure_view_valid() then
             gallery:refresh_overlays(false)
@@ -400,10 +417,17 @@ function gallery_mt.set_selection(gallery, selection)
         end
     end
 end
-    
-function gallery_mt.set_geometry(gallery, x, y, w, h)
+
+function gallery_mt.set_geometry(gallery, x, y, w, h, sw, sh, tw, th)
+    if w <= 0 or h <= 0 or tw <= 0 or th <= 0 then
+        msg.warn("Invalid coordinates")
+        return
+    end
     gallery.geometry.position = {x, y}
     gallery.geometry.size = {w, h}
+    gallery.geometry.min_spacing = {sw, sh}
+    gallery.geometry.thumbnail_size = {tw, th}
+    gallery.geometry.ok = true
     if not gallery.active then return end
     if not gallery:enough_space() then
         msg.warn("Not enough space to display something")
@@ -464,6 +488,10 @@ function gallery_mt.activate(gallery)
     if gallery.active then return false end
     if not gallery:enough_space() then
         msg.warn("Not enough space, refusing to start")
+        return false
+    end
+    if not gallery.geometry.ok then
+        msg.warn("Gallery geometry unitialized, refusing to start")
         return false
     end
     gallery.active = true
