@@ -74,6 +74,8 @@ properties = {
     ["chapter-list"] = {},
     ["duration"] = -1,
     ["mute"] = false,
+    ["volume"] = -1,
+    ["audio-client-name"] = '',
 }
 
 local edl_album_cache = {}
@@ -932,6 +934,62 @@ do
     this.idle = function() end
 end
 
+local controls_component = {}
+do
+    local this = controls_component
+
+    local position = {0, 0}
+    local size = {0, 0}
+    local active = false
+
+    local ass = {
+        background = "",
+    }
+
+    this.set_active = function(active_now)
+        active = active_now
+        redraw_background(background_idle)
+        if active then
+            fetch_lyrics()
+            this.autoscrolling = true
+        else
+            clear_lyrics()
+        end
+    end
+    this.set_focus = function(focus)
+        setup_bindings(bindings, "lyrics", focus)
+        this.has_focus = focus
+        redraw_background(this.has_focus and background_focus or background_idle)
+    end
+
+    this.set_geometry = function(x, y, w, h)
+        position = { x, y }
+        size = { w, h }
+        if active then
+        end
+    end
+    this.position = function()
+        return position[1], position[2]
+    end
+    this.size = function()
+        return size[1], size[2]
+    end
+    this.ass = function()
+        return active and table.concat(ass, '\n') or ''
+    end
+
+    this.prop_changed = {
+        ["pause"] = function() end,
+        ["mute"] = function() end,
+        ["volume"] = function() end,
+        ["audio-client-name"] = function() end,
+    }
+
+    this.mouse_move = function(mx, my) end
+
+    this.idle = function() end
+end
+
 local lyrics_component = {}
 do
     local this = lyrics_component
@@ -1263,7 +1321,7 @@ mp.register_script_message("prop-changed", function(name, value)
         value = value and utils.parse_json(value) or {}
     elseif name == "mute" or name == "pause" then
         value = (value == "yes")
-    elseif name == "time-pos" or name == "duration" or name == "chapter" then
+    elseif name == "time-pos" or name == "duration" or name == "chapter" or name == "volume" then
         value = tonumber(value) or -1
     else
         value = value or ''

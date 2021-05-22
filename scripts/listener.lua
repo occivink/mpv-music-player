@@ -26,6 +26,8 @@ mp.register_script_message("listener-start", function(server_address, client_scr
             "pause",
             "playlist",
             "mute",
+            "volume",
+            "audio-client-name",
         })
     do
         client:send(string.format('{ "command": ["observe_property_string", %d, "%s"] }\n', i, prop))
