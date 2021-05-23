@@ -969,22 +969,44 @@ do
 
     local function redraw_buttons(focus)
         local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1a&00&\\1c&%s&}', '999999'))
-        a:pos(0, 0)
-        a:draw_start()
-        for _, b in ipairs({play,pause,backwards,forwards,speakers,headphones,mute,volume}) do
-            if b ~= hovered_button then
-                a:rect_cw(b[1], b[2], b[1] + b[3], b[2] + b[4])
+        local last_color = nil
+        local draw_button = function(b, border, color)
+            if color ~= last_color then
+                last_color = color
+                a:new_event()
+                a:append(string.format('{\\bord0\\shad0\\1a&00&\\1c&%s&}', color))
+                a:pos(0, 0)
+                a:draw_start()
             end
+            if b[3] + border < 0 or b[4] + border < 0 then return end
+            a:rect_cw(b[1] - border, b[2] - border, b[1] + b[3] + border, b[2] + b[4] + border)
         end
-        if hovered_button then
-            a:new_event()
-            a:append(string.format('{\\bord0\\shad0\\1a&00&\\1c&%s&}', '444444'))
-            a:pos(0, 0)
-            a:draw_start()
-            a:rect_cw(hovered_button[1], hovered_button[2], hovered_button[1] + hovered_button[3], hovered_button[2] + hovered_button[4])
+
+        -- each button has a little frame of 1px
+        local border = 1
+        for _, b in ipairs({play, pause, backwards, forwards, speakers, headphones, mute, volume}) do
+            draw_button(b, border, '000000')
         end
+        local is_pause = properties["pause"]
+        local is_play = not is_pause
+        local is_mute = properties["mute"]
+        local is_speakers = properties["audio-client-name"] == 'mmp-headphones'
+        local is_headphones = not is_speakers
+        local current_volume = properties["volume"] / 100
+
+        draw_button(backwards, -border, 'CCCCCC')
+        draw_button(forwards, -border, 'CCCCCC')
+        draw_button(play, -border, is_play and 'FF0000' or 'CCCCCC')
+        draw_button(pause, -border, is_pause and '0000FF' or 'CCCCCC')
+
+        draw_button(speakers, -border, is_speakers and '999999' or 'CCCCCC')
+        draw_button(headphones, -border, is_headphones and '999999' or 'CCCCCC')
+
+        draw_button(mute, -border, is_mute and '0000FF' or 'CCCCCC')
+
+        local v = volume
+        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, 'CCCCCC')
+        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, '999999')
         ass_text.buttons = a.text
         ass_changed = true
     end
