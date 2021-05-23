@@ -1359,6 +1359,7 @@ local layouts = {
     PLAYING = {
         now_playing_component,
         lyrics_component,
+        controls_component,
     },
     PLAYING_SMALL = {
         now_playing_component,
@@ -1387,7 +1388,10 @@ function layout_geometry(ww, wh)
         now_playing_component.set_geometry(x, y, w, 180)
         y = y + 180 + global_offset
         h = h - (180 + global_offset)
-        local lyrics_w = math.min(w, math.max(600, w / 3))
+        controls_component.set_geometry(x, y, 180, 180)
+        x = x + 180 + global_offset
+        w = w - 180 - global_offset
+        local lyrics_w = math.min(w, 600)
         lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
     elseif active_layout == "PLAYING_SMALL" then
         now_playing_component.set_geometry(x, y, w, h)
