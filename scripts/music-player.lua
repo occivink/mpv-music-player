@@ -42,7 +42,7 @@ end
 send_to_server({"disable_event", "all"})
 
 -- CONFIG
-local global_offset = 25
+local global_offset = 15
 local background_focus="DDDDDD"
 local background_idle="999999"
 local chapters_marker_width=3
@@ -1059,8 +1059,10 @@ do
         set_pos(play,       0.5,  0.1,   0.28, 0.28)
         set_pos(backwards,  0.06, 0.16,  0.16, 0.16)
         set_pos(forwards,   0.78, 0.16,  0.16, 0.16)
-        set_pos(speakers,   0.08, 0.45,  0.42, 0.25)
-        set_pos(headphones, 0.5,  0.45,  0.42, 0.25)
+
+        set_pos(speakers,   0.14, 0.48,  0.36, 0.20)
+        set_pos(headphones, 0.5,  0.48,  0.36, 0.20)
+
         set_pos(mute,       0.05, 0.80,  0.15, 0.15)
         set_pos(volume,     0.23, 0.825, 0.72, 0.10)
         if active then
