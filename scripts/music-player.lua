@@ -953,6 +953,7 @@ do
     }
 
     local hovered_button = nil
+    local holding_volume = false
 
     local function is_on_button(button, x, y)
         return x >= button[1] and y >= button[2] and x <= button[1] + button[3] and y <= button[2] + button[4]
@@ -1031,12 +1032,26 @@ do
         end
     end
 
-    local function press_button()
+    local function press_button(table)
+        if table["event"] == "up" then
+            holding_volume = false
+            return
+        end
+
         local mx, my = mp.get_mouse_pos()
         local button = get_button_at(mx, my)
-        if not button then
+        if not button then return end
+
+        if button == volume then
+            holding_volume = true
+            if holding_volume then
+                vol = ((mx - volume[1]) / volume[3]) * 100
+                send_to_server({"set", "volume", tostring(vol)})
+            end
             return
-        elseif button == play then
+        end
+
+        if button == play then
             send_to_server({"set", "pause", "no"})
         elseif button == pause then
             send_to_server({"set", "pause", "yes"})
@@ -1052,19 +1067,17 @@ do
             send_to_server({"set", "audio-client-name", "mmp-headphones"})
         elseif button == mute then
             send_to_server({"cycle", "mute"})
-        elseif button == volume then
-            vol = ((mx - volume[1]) / volume[3]) * 100
-            send_to_server({"set", "volume", tostring(vol)})
         end
     end
 
     local bindings = {
-        {"MBTN_LEFT", press_button, {}},
+        {"MBTN_LEFT", press_button, {complex=true, repeatable=false}},
     }
 
     this.set_focus = function(focus)
         setup_bindings(bindings, "controls", focus)
         has_focus = focus
+        if not has_focus then holding_volume = false end
         redraw_background(has_focus and background_focus or background_idle)
     end
 
@@ -1099,19 +1112,22 @@ do
         return size[1], size[2]
     end
     this.ass = function()
-        return active and table.concat({ ass_text.buttons, ass_text.background }, '\n') or ''
+        return active and table.concat({ ass_text.background, ass_text.buttons }, '\n') or ''
     end
 
     this.prop_changed = {
-        ["pause"] = function() end,
-        ["mute"] = function() end,
-        ["volume"] = function() end,
-        ["audio-client-name"] = function() end,
+        ["pause"] = redraw_buttons,
+        ["mute"] = redraw_buttons,
+        ["volume"] = redraw_buttons,
+        ["audio-client-name"] = redraw_buttons,
     }
 
     this.mouse_move = function(mx, my)
         local new_button = get_button_at(mx, my)
-        if new_button ~= hovered_button then
+        if holding_volume then
+            vol = math.max(0, math.min((mx - volume[1]) / volume[3] * 100, 100))
+            send_to_server({"set", "volume", tostring(vol)})
+        elseif new_button ~= hovered_button then
             hovered_button = new_button
             redraw_buttons()
         end
