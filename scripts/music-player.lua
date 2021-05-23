@@ -991,28 +991,48 @@ do
         local is_pause = properties["pause"]
         local is_play = not is_pause
         local is_mute = properties["mute"]
-        local is_speakers = properties["audio-client-name"] == 'mmp-headphones'
+        local is_speakers = properties["audio-client-name"] == 'mmp-speakers'
         local is_headphones = not is_speakers
         local current_volume = properties["volume"] / 100
 
         local red = '5E66F9'
         local blue = 'CB9F79'
-        local white = '999999'
-        local gray = 'CCCCCC'
+        local white = 'BBBBBB'
+        local gray = '555555'
 
-        draw_button(backwards, -border, gray)
-        draw_button(forwards, -border, gray)
-        draw_button(play, -border, is_play and blue or gray)
-        draw_button(pause, -border, is_pause and red or gray)
+        draw_button(backwards, -border, white)
+        draw_button(forwards, -border, white)
+        draw_button(play, -border, is_play and blue or white)
+        draw_button(pause, -border, is_pause and red or white)
+
 
         draw_button(speakers, -border, is_speakers and white or gray)
         draw_button(headphones, -border, is_headphones and white or gray)
 
-        draw_button(mute, -border, is_mute and red or gray)
+        draw_button(mute, -border, is_mute and red or white)
 
         local v = volume
-        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, gray)
-        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, white)
+        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, white)
+        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, gray)
+
+        local draw_icon = function(b, percent_margin, icon)
+            a:new_event()
+            local frac = percent_margin / 100
+            a:append(string.format("{\\bord%i}{\\pos(%d,%d)\\fscx%i\\fscy%i}{\\an7\\p1}%s",
+                border * 2,
+                b[1] + b[3] * frac,
+                b[2] + b[4] * frac,
+                (1 - 2 * frac) * b[3],
+                (1 - 2 * frac) * b[4],
+                icon))
+        end
+        draw_icon(play, 30, "m 5 -5 l 5 105 l 105 50") -- slight forward advance (x += 5) to look more centered
+        draw_icon(pause, 30, "m 0 0 l 0 100 l 35 100 l 35 0 m 65 0 l 65 100 l 100 100 l 100 0")
+        draw_icon(forwards, 30, "m 0 0 l 0 100 l 45 70 l 45 100 l 100 50 l 45 0 l 45 30")
+        draw_icon(backwards, 30, "m 100 0 l 100 100 l 55 70 l 55 100 l 0 50 l 55 0 l 55 30")
+
+        draw_icon(mute, 30, "m 0 30 l 0 70 l 50 70 l 100 100 l 100 0 l 50 30")
+
         ass_text.buttons = a.text
         ass_changed = true
     end
