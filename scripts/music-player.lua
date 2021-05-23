@@ -737,11 +737,6 @@ do
     end
 
     local function redraw_background(color)
-        if not this.active then
-            this.ass_text.background = ''
-            ass_changed = true
-            return
-        end
         local a = assdraw.ass_new()
         a:new_event()
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
@@ -941,31 +936,136 @@ do
     local position = {0, 0}
     local size = {0, 0}
     local active = false
+    local has_focus = false
 
-    local ass = {
+    local play = {}
+    local pause = {}
+    local backwards = {}
+    local forwards = {}
+    local speakers = {}
+    local headphones = {}
+    local mute = {}
+    local volume = {}
+
+    local ass_text = {
         background = "",
+        buttons = "",
     }
+
+    local hovered_button = nil
+
+    local function is_on_button(button, x, y)
+        return x >= button[1] and y >= button[2] and x <= button[1] + button[3] and y <= button[2] + button[4]
+    end
+
+    local function get_button_at(x, y)
+        for _, button in ipairs({play,pause,backwards,forwards,speakers,headphones,mute,volume}) do
+            if is_on_button(button, x, y) then
+                return button
+            end
+        end
+        return nil
+    end
+
+    local function redraw_buttons(focus)
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1a&00&\\1c&%s&}', '999999'))
+        a:pos(0, 0)
+        a:draw_start()
+        for _, b in ipairs({play,pause,backwards,forwards,speakers,headphones,mute,volume}) do
+            if b ~= hovered_button then
+                a:rect_cw(b[1], b[2], b[1] + b[3], b[2] + b[4])
+            end
+        end
+        if hovered_button then
+            a:new_event()
+            a:append(string.format('{\\bord0\\shad0\\1a&00&\\1c&%s&}', '444444'))
+            a:pos(0, 0)
+            a:draw_start()
+            a:rect_cw(hovered_button[1], hovered_button[2], hovered_button[1] + hovered_button[3], hovered_button[2] + hovered_button[4])
+        end
+        ass_text.buttons = a.text
+        ass_changed = true
+    end
+
+    local function redraw_background(color)
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
+        a:pos(0, 0)
+        a:draw_start()
+        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
+        ass_text.background = a.text
+        ass_changed = true
+    end
 
     this.set_active = function(active_now)
         active = active_now
         redraw_background(background_idle)
         if active then
-            fetch_lyrics()
-            this.autoscrolling = true
-        else
-            clear_lyrics()
+            redraw_background(has_focus and background_focus or background_idle)
+            redraw_buttons()
         end
     end
+
+    local function press_button()
+        local mx, my = mp.get_mouse_pos()
+        local button = get_button_at(mx, my)
+        if not button then
+            return
+        elseif button == play then
+            send_to_server({"set", "pause", "no"})
+        elseif button == pause then
+            send_to_server({"set", "pause", "yes"})
+        elseif button == backwards or button == forwards then
+            local chap = properties["chapter"]
+            if not chap then return end
+            chap = chap + (button == backwards and -1 or 1)
+            if chap < -1 then return end
+            send_to_server({"set", "chapter", tostring(chap)})
+        elseif button == speakers then
+            send_to_server({"set", "audio-client-name", "mmp-speakers"})
+        elseif button == headphones then
+            send_to_server({"set", "audio-client-name", "mmp-headphones"})
+        elseif button == mute then
+            send_to_server({"cycle", "mute"})
+        elseif button == volume then
+            vol = ((mx - volume[1]) / volume[3]) * 100
+            send_to_server({"set", "volume", tostring(vol)})
+        end
+    end
+
+    local bindings = {
+        {"MBTN_LEFT", press_button, {}},
+    }
+
     this.set_focus = function(focus)
-        setup_bindings(bindings, "lyrics", focus)
-        this.has_focus = focus
-        redraw_background(this.has_focus and background_focus or background_idle)
+        setup_bindings(bindings, "controls", focus)
+        has_focus = focus
+        redraw_background(has_focus and background_focus or background_idle)
     end
 
     this.set_geometry = function(x, y, w, h)
         position = { x, y }
         size = { w, h }
+        local set_pos = function(comp, cx, cy, cw, ch)
+            comp[1] = x + cx * w
+            comp[2] = y + cy * h
+            comp[3] = cw * w
+            comp[4] = ch * h
+        end
+        set_pos(pause,      0.22, 0.1,   0.28, 0.28)
+        set_pos(play,       0.5,  0.1,   0.28, 0.28)
+        set_pos(backwards,  0.06, 0.16,  0.16, 0.16)
+        set_pos(forwards,   0.78, 0.16,  0.16, 0.16)
+        set_pos(speakers,   0.08, 0.45,  0.42, 0.25)
+        set_pos(headphones, 0.5,  0.45,  0.42, 0.25)
+        set_pos(mute,       0.05, 0.80,  0.15, 0.15)
+        set_pos(volume,     0.23, 0.825, 0.72, 0.10)
         if active then
+            redraw_background(has_focus and background_focus or background_idle)
+            redraw_buttons()
         end
     end
     this.position = function()
@@ -975,7 +1075,7 @@ do
         return size[1], size[2]
     end
     this.ass = function()
-        return active and table.concat(ass, '\n') or ''
+        return active and table.concat({ ass_text.buttons, ass_text.background }, '\n') or ''
     end
 
     this.prop_changed = {
@@ -985,7 +1085,13 @@ do
         ["audio-client-name"] = function() end,
     }
 
-    this.mouse_move = function(mx, my) end
+    this.mouse_move = function(mx, my)
+        local new_button = get_button_at(mx, my)
+        if new_button ~= hovered_button then
+            hovered_button = new_button
+            redraw_buttons()
+        end
+    end
 
     this.idle = function() end
 end
@@ -1195,6 +1301,7 @@ local components = {
     queue_component,
     now_playing_component,
     lyrics_component,
+    controls_component,
 }
 local layouts = {
     EMPTY = {},
@@ -1202,6 +1309,7 @@ local layouts = {
         albums_component,
         queue_component,
         now_playing_component,
+        controls_component,
     },
     PLAYING = {
         now_playing_component,
@@ -1221,8 +1329,12 @@ function layout_geometry(ww, wh)
     local h = wh - 2 * global_offset
 
     if active_layout == "BROWSE" then
-        now_playing_component.set_geometry(x, y + h - 180, w, 180)
+        controls_component.set_geometry(x, y + h - 180, 180, 180)
+        local tw = w - 180 - global_offset
+        local tx = x + 180 + global_offset
+        now_playing_component.set_geometry(tx, y + h - 180, tw, 180)
         h = h - 180 - global_offset
+
         queue_component.set_geometry(x + w - 200, y, 200, h)
         w = w - 200 - global_offset
         albums_component.set_geometry(x, y, w, h)
@@ -1379,6 +1491,7 @@ mp.register_idle(function()
             queue_component.ass(),
             now_playing_component.ass(),
             lyrics_component.ass(),
+            controls_component.ass(),
         }, "\n"))
     end
 end)
