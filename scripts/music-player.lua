@@ -995,19 +995,24 @@ do
         local is_headphones = not is_speakers
         local current_volume = properties["volume"] / 100
 
-        draw_button(backwards, -border, 'CCCCCC')
-        draw_button(forwards, -border, 'CCCCCC')
-        draw_button(play, -border, is_play and 'FF0000' or 'CCCCCC')
-        draw_button(pause, -border, is_pause and '0000FF' or 'CCCCCC')
+        local red = '5E66F9'
+        local blue = 'CB9F79'
+        local white = '999999'
+        local gray = 'CCCCCC'
 
-        draw_button(speakers, -border, is_speakers and '999999' or 'CCCCCC')
-        draw_button(headphones, -border, is_headphones and '999999' or 'CCCCCC')
+        draw_button(backwards, -border, gray)
+        draw_button(forwards, -border, gray)
+        draw_button(play, -border, is_play and blue or gray)
+        draw_button(pause, -border, is_pause and red or gray)
 
-        draw_button(mute, -border, is_mute and '0000FF' or 'CCCCCC')
+        draw_button(speakers, -border, is_speakers and white or gray)
+        draw_button(headphones, -border, is_headphones and white or gray)
+
+        draw_button(mute, -border, is_mute and red or gray)
 
         local v = volume
-        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, 'CCCCCC')
-        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, '999999')
+        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, gray)
+        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, white)
         ass_text.buttons = a.text
         ass_changed = true
     end
