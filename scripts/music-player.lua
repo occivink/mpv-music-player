@@ -971,7 +971,17 @@ do
     local function redraw_buttons(focus)
         local a = assdraw.ass_new()
         local last_color = nil
-        local draw_button = function(b, border, color)
+        local draw_button = function(b, border, color, tint_factor)
+            if tint_factor and tint_factor ~= 0 then
+                local b = tonumber(string.sub(color, 1, 2), 16)
+                local g = tonumber(string.sub(color, 3, 4), 16)
+                local r = tonumber(string.sub(color, 5, 6), 16)
+                color = string.format("%02x%02x%02x",
+                    b + (255 - b) * tint_factor,
+                    g + (255 - g) * tint_factor,
+                    r + (255 - r) * tint_factor)
+            end
+
             if color ~= last_color then
                 last_color = color
                 a:new_event()
@@ -997,28 +1007,27 @@ do
 
         local red = '5E66F9'
         local blue = 'CB9F79'
-        local white = 'BBBBBB'
+        local white = '999999'
         local gray = '555555'
 
-        draw_button(backwards, -border, white)
-        draw_button(forwards, -border, white)
-        draw_button(play, -border, is_play and blue or white)
-        draw_button(pause, -border, is_pause and red or white)
+        draw_button(backwards, -border, white, hovered_button == backwards and 0.15)
+        draw_button(forwards, -border, white, hovered_button == forwards and 0.15)
+        draw_button(play, -border, is_play and blue or white, hovered_button == play and 0.15)
+        draw_button(pause, -border, is_pause and red or white, hovered_button == pause and 0.15)
 
+        draw_button(speakers, -border, is_speakers and white or gray, hovered_button == speakers and 0.15)
+        draw_button(headphones, -border, is_headphones and white or gray, hovered_button == headphones and 0.15)
 
-        draw_button(speakers, -border, is_speakers and white or gray)
-        draw_button(headphones, -border, is_headphones and white or gray)
-
-        draw_button(mute, -border, is_mute and red or white)
+        draw_button(mute, -border, is_mute and red or white, hovered_button == mute and 0.15)
 
         local v = volume
-        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, white)
+        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, white, hovered_button == volume and 0.15)
         draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, gray)
 
         local draw_icon = function(b, percent_margin, icon)
             a:new_event()
             local frac = percent_margin / 100
-            a:append(string.format("{\\bord%i}{\\pos(%d,%d)\\fscx%i\\fscy%i}{\\an7\\p1}%s",
+            a:append(string.format("{\\bord%i\\pos(%d,%d)\\fscx%i\\fscy%i}{\\an7\\p1}%s",
                 border * 2,
                 b[1] + b[3] * frac,
                 b[2] + b[4] * frac,
