@@ -41,6 +41,12 @@ local function send_to_server(array)
 end
 send_to_server({"disable_event", "all"})
 
+local red = '5E66F9'
+local blue = 'CB9F79'
+local yellow = '7DBEEF'
+local white = '999999'
+local gray = '555555'
+
 -- CONFIG
 local global_offset = 15
 local background_focus="DDDDDD"
@@ -56,6 +62,7 @@ local title_text_size=32
 local artist_album_text_size=24
 local time_text_size=24
 local darker_text_color="888888"
+
 
 -- VARS
 local ass_changed = false
@@ -202,7 +209,7 @@ do
     gallery.config.overlay_range = 49
     gallery.config.background_color = background_idle
     gallery.config.background_opacity = background_opacity
-    
+
     local ass_text = ''
 
     gallery.item_to_overlay_path = function(index, item)
@@ -296,7 +303,7 @@ do
         gallery:ass_refresh(false, false, false, true)
     end
     this.set_geometry = function(x, y, w, h)
-        gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
+        gallery:set_geometry(x, y, w, h, 15, 15, 150, 150)
     end
     this.get_active = function()
         return active
@@ -343,10 +350,27 @@ local albums_component = {}
 do
     local this = albums_component -- mfw oop
 
+    local active = false
+    local focus = false
+
+    local position = {0,0}
+    local size = {0,0}
+
     local gallery = gallery_new()
     local albums_filtered = {}
 
+    local filter_position = {0,0}
+    local filter_size = {0,0}
+
+    gallery.items = albums_filtered
+    gallery.config.always_show_placeholders = false
+    gallery.config.align_text = true
+    gallery.config.max_thumbnails = 48
+    gallery.config.overlay_range = 1
+    gallery.config.background_opacity = 'ff'
+
     local ass_text = {
+        background = '',
         gallery = '',
         filter = '',
     }
@@ -368,13 +392,6 @@ do
         send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
     end
 
-    gallery.items = albums_filtered
-    gallery.config.always_show_placeholders = false
-    gallery.config.align_text = true
-    gallery.config.max_thumbnails = 48
-    gallery.config.overlay_range = 1
-    gallery.config.background_color = background_idle
-    gallery.config.background_opacity = background_opacity
 
     gallery.item_to_overlay_path = function(index, item)
         return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
@@ -416,7 +433,40 @@ do
         end
     end
 
-    local function filter_changed()
+    local function redraw_background(color)
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
+        a:pos(0, 0)
+        a:draw_start()
+        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
+        ass_text.background = a.text
+        ass_changed = true
+    end
+
+    local function redraw_filter()
+        local filter_escaped = filter
+        filter_escaped = filter_escaped:gsub('\\', '\\\239\187\191')
+        filter_escaped = filter_escaped:gsub('{', '\\{')
+        filter_escaped = filter_escaped:gsub('}', '\\}')
+        filter_escaped = filter_escaped:gsub('\\N ', '\\N\\h')
+        filter_escaped = filter_escaped:gsub('^ ', '\\h')
+
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:append(string.format('{\\bord3\\shad0\\1c&%s&\\3c&%s&}', '444444', focus_filter and blue or '222222'))
+        a:pos(0, 0)
+        a:draw_start()
+        a:rect_cw(filter_position[1], filter_position[2], filter_position[1] + filter_size[1], filter_position[2] + filter_size[2])
+        a:new_event()
+        a:pos(filter_position[1] + 5, filter_position[2] + filter_size[2] / 2)
+        a:an(4)
+        a:append(string.format("{\\bord0\\fs%d}%s", 28, filter_escaped))
+        ass_text.filter = a.text
+        ass_changed = true
+    end
+
+    local function apply_filter()
         local filter_processed = string.lower(filter)
         local prev_focus = albums_filtered[gallery.selection]
         for i = #albums_filtered, 1, -1 do
@@ -436,7 +486,12 @@ do
         gallery:items_changed(new_sel or 1)
     end
 
-    filter_changed()
+    apply_filter()
+
+    local function filter_changed()
+        apply_filter()
+        redraw_filter()
+    end
 
     -- some of this stuff is taken from Rossy's repl.lua
     local function next_utf8(str, pos)
@@ -473,6 +528,7 @@ do
     local function handle_left()
         if focus_filter then
             cursor = prev_utf8(filter, cursor)
+            redraw_filter()
         else
             increase_pending(-1)
         end
@@ -480,6 +536,7 @@ do
     local function handle_home()
         if focus_filter then
             cursor = 1
+            redraw_filter()
         else
             pending_selection = 1
         end
@@ -487,6 +544,7 @@ do
     local function handle_end()
         if focus_filter then
             cursor = filter:len() + 1
+            redraw_filter()
         else
             pending_selection = #albums_filtered
         end
@@ -494,6 +552,7 @@ do
     local function handle_enter()
         if focus_filter then
             focus_filter = false
+            redraw_filter()
         else
             add_to_queue(gallery.selection)
         end
@@ -507,6 +566,7 @@ do
     local function handle_right()
         if focus_filter then
             cursor = next_utf8(filter, cursor)
+            redraw_filter()
         else
             increase_pending(1)
         end
@@ -518,7 +578,9 @@ do
         end
     end
 
-    local function draw_filter()
+    local function toggle_focus_filter()
+        focus_filter = not focus_filter
+        redraw_filter()
     end
 
     local bindings = {
@@ -531,6 +593,7 @@ do
         {"CTRL+RIGHT", function() end, {repeatable=true}}, -- TODO
         {"ENTER", handle_enter, {}},
         {"ESC", handle_esc, {}},
+        {"ALT+f", toggle_focus_filter, {}},
         {"ALT+r", function() pending_selection = math.random(1, #albums_filtered) end, {repeatable=true}},
         {"UP", function() increase_pending(-gallery.geometry.columns) end, {repeatable=true}},
         {"DOWN", function() increase_pending(gallery.geometry.columns) end, {repeatable=true}},
@@ -541,29 +604,43 @@ do
         {"MBTN_LEFT", select_or_queue, {}},
     }
 
-    this.set_active = function(active)
+    this.set_active = function(active_now)
+        active = active_now
         if active then
             gallery:activate();
         else
             gallery:deactivate();
         end
+        redraw_background(focus and background_focus or background_idle)
+        redraw_filter()
     end
-    this.set_focus = function(focus)
+    this.set_focus = function(focus_now)
+        focus = focus_now
         setup_bindings(bindings, "albums", focus)
         gallery.config.background_color = focus and background_focus or background_idle
         gallery:ass_refresh(false, false, false, true)
+        redraw_background(focus and background_focus or background_idle)
+        focus_filter = false
+        redraw_filter()
     end
     this.set_geometry = function(x, y, w, h)
-        gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
+        local filter_height = 50
+        position = {x,y}
+        size = {w,h}
+        filter_position = {x + 10, y + 10}
+        filter_size = {math.min(300, w - 2 * 10), filter_height - 2 * 10}
+        gallery:set_geometry(x, y + filter_height - 30, w, h - filter_height + 30, 15, 30, 150, 150)
+        redraw_background(focus and background_focus or background_idle)
+        redraw_filter()
     end
     this.get_position = function()
-        return gallery.geometry.position[1], gallery.geometry.position[2]
+        return position[1], position[2]
     end
     this.get_size = function()
-        return gallery.geometry.size[1], gallery.geometry.size[2]
+        return size[1], size[2]
     end
     this.get_ass = function()
-        return table.concat({ass_text.gallery, ass_text.filter}, '\n')
+        return active and table.concat({ass_text.background, ass_text.gallery, ass_text.filter}, '\n') or ''
     end
 
     this.prop_changed = {}
@@ -1012,12 +1089,6 @@ do
         local is_speakers = properties["audio-client-name"] == 'mmp-speakers'
         local is_headphones = properties["audio-client-name"] == 'mmp-headphones'
         local current_volume = properties["volume"] / 100
-
-        local red = '5E66F9'
-        local blue = 'CB9F79'
-        local yellow = '7DBEEF'
-        local white = '999999'
-        local gray = '555555'
 
         draw_button(backwards, -border, white, hovered_button == backwards and 0.15)
         draw_button(forwards, -border, white, hovered_button == forwards and 0.15)
