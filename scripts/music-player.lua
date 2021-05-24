@@ -1002,18 +1002,19 @@ do
         local is_play = not is_pause
         local is_mute = properties["mute"]
         local is_speakers = properties["audio-client-name"] == 'mmp-speakers'
-        local is_headphones = not is_speakers
+        local is_headphones = properties["audio-client-name"] == 'mmp-headphones'
         local current_volume = properties["volume"] / 100
 
         local red = '5E66F9'
         local blue = 'CB9F79'
+        local yellow = '7DBEEF'
         local white = '999999'
         local gray = '555555'
 
         draw_button(backwards, -border, white, hovered_button == backwards and 0.15)
         draw_button(forwards, -border, white, hovered_button == forwards and 0.15)
         draw_button(play, -border, is_play and blue or white, hovered_button == play and 0.15)
-        draw_button(pause, -border, is_pause and red or white, hovered_button == pause and 0.15)
+        draw_button(pause, -border, is_pause and yellow or white, hovered_button == pause and 0.15)
 
         draw_button(speakers, -border, is_speakers and white or gray, hovered_button == speakers and 0.15)
         draw_button(headphones, -border, is_headphones and white or gray, hovered_button == headphones and 0.15)
@@ -1022,7 +1023,7 @@ do
 
         local v = volume
         draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, white, hovered_button == volume and 0.15)
-        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, gray)
+        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, gray, hovered_button == volume and 0.15)
 
         local draw_icon = function(b, percent_margin, icon)
             a:new_event()
@@ -1039,6 +1040,47 @@ do
         draw_icon(pause, 30, "m 0 0 l 0 100 l 35 100 l 35 0 m 65 0 l 65 100 l 100 100 l 100 0")
         draw_icon(forwards, 30, "m 0 0 l 0 100 l 45 70 l 45 100 l 100 50 l 45 0 l 45 30")
         draw_icon(backwards, 30, "m 100 0 l 100 100 l 55 70 l 55 100 l 0 50 l 55 0 l 55 30")
+
+        draw_icon(speakers, 22, "m -5 0 l -5 110 l 30 110 l 30 0 m 70 0 l 70 110 l 105 110 l 105 0")
+        local function circle(center, radius)
+            return table.concat({
+                'm', center[1], center[2] - radius,
+                'b',  center[1] + radius, center[2] - radius,
+                center[1] + radius, center[2] + radius,
+                center[1], center[2] + radius,
+                'b', center[1]  - radius, center[2] + radius,
+                center[1] - radius, center[2] - radius,
+                center[1], center[2] - radius
+            }, ' ')
+        end
+        draw_icon(speakers, 22, '{\\1c&333333&}' ..
+            circle({-5 + 35/2, 80}, 12) ..
+            circle({-5 + 35/2, 30}, 7) ..
+            circle({70 + 35/2, 80}, 12) ..
+            circle({70 + 35/2, 30}, 7))
+        draw_icon(headphones, 22, table.concat({
+            'm', 50, 0,-- top of arch's highest point
+            'b', 20, 0,
+            20, 50,
+            20, 65,     -- left can, arch connection
+            'l', 0, 65, --left can, top left
+            'l', 0, 100, -- left can, bottom left
+            'l', 25, 100, -- left can, bottom right
+            'l', 25, 65, -- left can, top right
+            'b', 25, 50,
+            25, 10,
+            50, 10, -- bottom of arch's highest point
+            'b', 75, 10,
+            75, 50,
+            75, 65,
+            'l', 75, 100,
+            'l', 100, 100,
+            'l', 100, 65,
+            'l', 80, 65,
+            'b', 80, 50,
+            80, 0,
+            50, 0,
+        }, ' '))
 
         draw_icon(mute, 30, "m 0 30 l 0 70 l 50 70 l 100 100 l 100 0 l 50 30")
 
@@ -1129,8 +1171,8 @@ do
         set_pos(backwards,  0.06, 0.16,  0.16, 0.16)
         set_pos(forwards,   0.78, 0.16,  0.16, 0.16)
 
-        set_pos(speakers,   0.14, 0.48,  0.36, 0.20)
-        set_pos(headphones, 0.5,  0.48,  0.36, 0.20)
+        set_pos(speakers,   0.16, 0.46,  0.34, 0.24)
+        set_pos(headphones, 0.5,  0.46,  0.34, 0.24)
 
         set_pos(mute,       0.05, 0.80,  0.15, 0.15)
         set_pos(volume,     0.23, 0.825, 0.72, 0.10)
