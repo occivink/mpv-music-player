@@ -145,18 +145,19 @@ do
         msg.warn("No albums, exiting")
         return
     end
-    local r = {}
-    r['á']='a'  r['à']='a'  r['â']='a'  r['ä']='a'  r['ă']='a'  r['å']='a'  r['æ']='a'
-    r['é']='e'  r['è']='e'  r['ë']='e'  r['ê']='e'
-    r['ï']='i'  r['î']='i'  r['í']='i'  r['ì']='i'
-    r['ó']='o'  r['ò']='o'  r['ô']='o'  r['ö']='o'  r['ø']='o'
-    r['ü']='u'  r['û']='u'  r['ú']='u'  r['ù']='u'
-    r['ð']='d'
-    r['ç']='c'
-    r['þ']='t'  r['ț']='t'
-    r['ș']='s'
-    r['ñ']='n'
-    r['ý']='y'
+    local r = {
+        ['á']='a',  ['à']='a',  ['â']='a',  ['ä']='a',  ['ă']='a',  ['å']='a',  ['æ']='a',
+        ['é']='e',  ['è']='e',  ['ë']='e',  ['ê']='e',
+        ['ï']='i',  ['î']='i',  ['í']='i',  ['ì']='i',
+        ['ó']='o',  ['ò']='o',  ['ô']='o',  ['ö']='o',  ['ø']='o',
+        ['ü']='u',  ['û']='u',  ['ú']='u',  ['ù']='u',
+        ['ð']='d',
+        ['ç']='c',
+        ['þ']='t',  ['ț']='t',
+        ['ș']='s',
+        ['ñ']='n',
+        ['ý']='y',
+    }
 
     local function normalize_name(name)
         local norm = {}
@@ -190,65 +191,67 @@ end
 local queue_component = {}
 do
     local this = queue_component
-    this.gallery = gallery_new()
+    local gallery = gallery_new()
+    local pending_selection = nil
+    local active = false
 
-    this.gallery.items = queue
-    this.gallery.config.always_show_placeholders = false
-    this.gallery.config.align_text = false
-    this.gallery.config.max_thumbnails = 16
-    this.gallery.config.overlay_range = 49
-    this.gallery.config.background_color = background_idle
-    this.gallery.config.background_opacity = background_opacity
+    gallery.items = queue
+    gallery.config.always_show_placeholders = false
+    gallery.config.align_text = false
+    gallery.config.max_thumbnails = 16
+    gallery.config.overlay_range = 49
+    gallery.config.background_color = background_idle
+    gallery.config.background_opacity = background_opacity
+    
+    local ass_text = ''
 
-    this.gallery.item_to_overlay_path = function(index, item)
+    gallery.item_to_overlay_path = function(index, item)
         local album = albums[item]
         return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
             album.artist, album.album,
-            this.gallery.geometry.thumbnail_size[1],
-            this.gallery.geometry.thumbnail_size[2]
+            gallery.geometry.thumbnail_size[1],
+            gallery.geometry.thumbnail_size[2]
         )
     end
-    this.gallery.item_to_border = function(index, item)
-        if index == this.gallery.selection then
+    gallery.item_to_border = function(index, item)
+        if index == gallery.selection then
             return 3, "AAAAAA"
         end
         return 1, "BBBBBB"
     end
-    this.gallery.item_to_text = function(index, item)
+    gallery.item_to_text = function(index, item)
         return ''
     end
-    this.ass_text = ''
-    this.gallery.ass_show = function(ass)
-        this.ass_text = ass
+    gallery.ass_show = function(ass)
+        ass_text = ass
         ass_changed = true
     end
 
-    local pending_selection = nil
 
     local function increase_pending(inc)
-        pending_selection = (pending_selection or this.gallery.selection) + inc
+        pending_selection = (pending_selection or gallery.selection) + inc
     end
     local function remove_from_queue()
         if #queue == 0 then return end
         -- playlist-remove is 0-indexed, but queue doesn't contain the current one anyway
-        local play_index = this.gallery.selection
+        local play_index = gallery.selection
         send_to_server({"playlist-remove", tostring(play_index)})
-        this.gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
+        gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
     end
     local function play_from_queue()
         if #queue == 0 then return end
-        local play_index = this.gallery.selection
+        local play_index = gallery.selection
         --send_to_server({"playlist-move", tostring(play_index), "1"})
         --send_to_server({"set_property", "playlist-pos", "1"})
         send_to_server({"script_message", "start_playing", tostring(play_index)})
-        this.gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
+        gallery:set_selection(play_index + (play_index == #queue and -1 or 1))
     end
 
     local function select_or_play()
         local mx, my = mp.get_mouse_pos()
-        local index = this.gallery:index_at(mx, my)
+        local index = gallery:index_at(mx, my)
         if not index then return end
-        if index == this.gallery.selection then
+        if index == gallery.selection then
             play_from_queue()
         else
             pending_selection = index
@@ -257,9 +260,9 @@ do
 
     local function select_or_remove()
         local mx, my = mp.get_mouse_pos()
-        local index = this.gallery:index_at(mx, my)
+        local index = gallery:index_at(mx, my)
         if not index then return end
-        if index == this.gallery.selection then
+        if index == gallery.selection then
             remove_from_queue()
         else
             pending_selection = index
@@ -269,45 +272,49 @@ do
     local bindings = {
         {"LEFT", function() increase_pending(-1) end, {repeatable=true}},
         {"RIGHT", function() increase_pending(1) end, {repeatable=true}},
-        {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
-        {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
-        {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
-        {"WHEEL_DOWN", function() increase_pending(this.gallery.geometry.columns) end, {}},
+        {"UP", function() increase_pending(-gallery.geometry.columns) end, {repeatable=true}},
+        {"DOWN", function() increase_pending(gallery.geometry.columns) end, {repeatable=true}},
+        {"WHEEL_UP", function() increase_pending(-gallery.geometry.columns) end, {}},
+        {"WHEEL_DOWN", function() increase_pending(gallery.geometry.columns) end, {}},
         {"ENTER", function() play_from_queue() end, {}},
         {"DEL", function() if #queue > 0 then remove_from_queue() end end, {}},
         {"MBTN_LEFT", function() select_or_play() end, {}},
         {"MBTN_RIGHT", function() select_or_remove() end, {}},
     }
 
-    this.set_active = function(active)
+    this.set_active = function(active_now)
+        active = active_now
         if active then
-            this.gallery:activate();
+            gallery:activate();
         else
-            this.gallery:deactivate();
+            gallery:deactivate();
         end
     end
     this.set_focus = function(focus)
         setup_bindings(bindings, "queue", focus)
-        this.gallery.config.background_color = focus and background_focus or background_idle
-        this.gallery:ass_refresh(false, false, false, true)
+        gallery.config.background_color = focus and background_focus or background_idle
+        gallery:ass_refresh(false, false, false, true)
     end
     this.set_geometry = function(x, y, w, h)
-        this.gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
+        gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
     end
-    this.position = function()
-        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
+    this.get_active = function()
+        return active
     end
-    this.size = function()
-        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
+    this.get_position = function()
+        return gallery.geometry.position[1], gallery.geometry.position[2]
     end
-    this.ass = function()
-        return this.ass_text
+    this.get_size = function()
+        return gallery.geometry.size[1], gallery.geometry.size[2]
+    end
+    this.get_ass = function()
+        return ass_text
     end
 
     this.prop_changed = {
         ["playlist"] = function(val)
             -- queue = {} is no good because it creates a new object or something
-            local prev_index = queue[this.gallery.selection]
+            local prev_index = queue[gallery.selection]
             local new_sel = nil
             for i in pairs(queue) do queue[i] = nil end
             for i = 2, #val do
@@ -318,7 +325,7 @@ do
                     new_sel = #queue
                 end
             end
-            this.gallery:items_changed(new_sel or 1)
+            gallery:items_changed(new_sel or 1)
         end
     }
 
@@ -326,7 +333,7 @@ do
 
     this.idle = function()
         if pending_selection then
-            this.gallery:set_selection(pending_selection)
+            gallery:set_selection(pending_selection)
             pending_selection = nil
         end
     end
@@ -336,9 +343,18 @@ local albums_component = {}
 do
     local this = albums_component -- mfw oop
 
-    this.gallery = gallery_new()
-
+    local gallery = gallery_new()
     local albums_filtered = {}
+
+    local ass_text = {
+        gallery = '',
+        filter = '',
+    }
+    local pending_selection = nil
+
+    local focus_filter = false
+    local filter = ''
+    local cursor = 1
 
     local function add_to_queue(index)
         local album = albums_filtered[index]
@@ -352,63 +368,57 @@ do
         send_to_server({"loadfile", "edl://" .. table.concat(files, ';'), "append-play"})
     end
 
-    this.gallery.items = albums_filtered
-    this.gallery.config.always_show_placeholders = false
-    this.gallery.config.align_text = true
-    this.gallery.config.max_thumbnails = 48
-    this.gallery.config.overlay_range = 1
-    this.gallery.config.background_color = background_idle
-    this.gallery.config.background_opacity = background_opacity
+    gallery.items = albums_filtered
+    gallery.config.always_show_placeholders = false
+    gallery.config.align_text = true
+    gallery.config.max_thumbnails = 48
+    gallery.config.overlay_range = 1
+    gallery.config.background_color = background_idle
+    gallery.config.background_opacity = background_opacity
 
-    this.gallery.item_to_overlay_path = function(index, item)
+    gallery.item_to_overlay_path = function(index, item)
         return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
             item.artist, item.album,
-            this.gallery.geometry.thumbnail_size[1],
-            this.gallery.geometry.thumbnail_size[2]
+            gallery.geometry.thumbnail_size[1],
+            gallery.geometry.thumbnail_size[2]
         )
     end
-    this.gallery.item_to_border = function(index, item)
-        if index == this.gallery.selection then
+    gallery.item_to_border = function(index, item)
+        if index == gallery.selection then
             return 4, "AAAAAA"
         end
         return 0.8, "BBBBBB"
     end
-    this.gallery.item_to_text = function(index, item)
-        if index == this.gallery.selection then
+    gallery.item_to_text = function(index, item)
+        if index == gallery.selection then
             return string.format("%s - %s [%d]", item.artist, item.album, item.year)
         end
         return ''
     end
-    this.ass_text = ''
-    this.gallery.ass_show = function(ass)
-        this.ass_text = ass
+
+    gallery.ass_show = function(ass)
+        ass_text.gallery = ass
         ass_changed = true
     end
 
-    local pending_selection = nil
-
     local function increase_pending(inc)
-        pending_selection = (pending_selection or this.gallery.selection) + inc
+        pending_selection = (pending_selection or gallery.selection) + inc
     end
 
     local function select_or_queue()
         local mx, my = mp.get_mouse_pos()
-        local index = this.gallery:index_at(mx, my)
+        local index = gallery:index_at(mx, my)
         if not index then return end
-        if index == this.gallery.selection then
+        if index == gallery.selection then
             add_to_queue(index)
         else
-            this.gallery:set_selection(index)
+            gallery:set_selection(index)
         end
     end
 
-    local focus_filter = false
-    local filter = ''
-    local cursor = 1
-
     local function filter_changed()
         local filter_processed = string.lower(filter)
-        local prev_focus = albums_filtered[this.gallery.selection]
+        local prev_focus = albums_filtered[gallery.selection]
         for i = #albums_filtered, 1, -1 do
             albums_filtered[i] = nil
         end
@@ -423,7 +433,7 @@ do
                 if album == prev_focus then new_sel = #albums_filtered end
             end
         end
-        this.gallery:items_changed(new_sel or 1)
+        gallery:items_changed(new_sel or 1)
     end
 
     filter_changed()
@@ -485,7 +495,7 @@ do
         if focus_filter then
             focus_filter = false
         else
-            add_to_queue(this.gallery.selection)
+            add_to_queue(gallery.selection)
         end
     end
     local function handle_esc()
@@ -508,6 +518,9 @@ do
         end
     end
 
+    local function draw_filter()
+    end
+
     local bindings = {
         {"ANY_UNICODE", handle_unicode, {complex=true, repeatable=true}},
         {"BS", del_char_left, {repeatable=true}},
@@ -519,10 +532,10 @@ do
         {"ENTER", handle_enter, {}},
         {"ESC", handle_esc, {}},
         {"ALT+r", function() pending_selection = math.random(1, #albums_filtered) end, {repeatable=true}},
-        {"UP", function() increase_pending(-this.gallery.geometry.columns) end, {repeatable=true}},
-        {"DOWN", function() increase_pending(this.gallery.geometry.columns) end, {repeatable=true}},
-        {"WHEEL_UP", function() increase_pending(-this.gallery.geometry.columns) end, {}},
-        {"WHEEL_DOWN", function() increase_pending(this.gallery.geometry.columns) end, {}},
+        {"UP", function() increase_pending(-gallery.geometry.columns) end, {repeatable=true}},
+        {"DOWN", function() increase_pending(gallery.geometry.columns) end, {repeatable=true}},
+        {"WHEEL_UP", function() increase_pending(-gallery.geometry.columns) end, {}},
+        {"WHEEL_DOWN", function() increase_pending(gallery.geometry.columns) end, {}},
         {"HOME", handle_home, {}},
         {"END", handle_end, {}},
         {"MBTN_LEFT", select_or_queue, {}},
@@ -530,27 +543,27 @@ do
 
     this.set_active = function(active)
         if active then
-            this.gallery:activate();
+            gallery:activate();
         else
-            this.gallery:deactivate();
+            gallery:deactivate();
         end
     end
     this.set_focus = function(focus)
         setup_bindings(bindings, "albums", focus)
-        this.gallery.config.background_color = focus and background_focus or background_idle
-        this.gallery:ass_refresh(false, false, false, true)
+        gallery.config.background_color = focus and background_focus or background_idle
+        gallery:ass_refresh(false, false, false, true)
     end
     this.set_geometry = function(x, y, w, h)
-        this.gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
+        gallery:set_geometry(x, y, w, h, 15, 30, 150, 150)
     end
-    this.position = function()
-        return this.gallery.geometry.position[1], this.gallery.geometry.position[2]
+    this.get_position = function()
+        return gallery.geometry.position[1], gallery.geometry.position[2]
     end
-    this.size = function()
-        return this.gallery.geometry.size[1], this.gallery.geometry.size[2]
+    this.get_size = function()
+        return gallery.geometry.size[1], gallery.geometry.size[2]
     end
-    this.ass = function()
-        return this.ass_text
+    this.get_ass = function()
+        return table.concat({ass_text.gallery, ass_text.filter}, '\n')
     end
 
     this.prop_changed = {}
@@ -558,7 +571,7 @@ do
 
     this.idle = function()
         if pending_selection then
-            this.gallery:set_selection(pending_selection)
+            gallery:set_selection(pending_selection)
             pending_selection = nil
         end
     end
@@ -567,30 +580,30 @@ end
 local now_playing_component = {}
 do
     local this = now_playing_component
-    this.geometry = {
-        position = {0,0},
-        size = {0,0},
-        waveform_position = {0,0},
-        waveform_size = {0,0},
-        cover_position = {0,0},
-        cover_size = {0,0},
-        text_position = {0,0},
-        times_position = {0, 0},
-    }
-    this.ass_text = {
+
+    local position = {0,0}
+    local size = {0,0}
+    local waveform_position = {0,0}
+    local waveform_size = {0,0}
+    local cover_position = {0,0}
+    local cover_size = {0,0}
+    local text_position = {0,0}
+    local times_position = {0, 0}
+
+    local ass_text = {
         background = '',
         elapsed = '',
         times = '',
         chapters = '',
         text = '',
     }
-    this.active = false
+    local active = false
 
     local function redraw_chapters()
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
         if not duration or #chapters == 0 then
-            this.ass_text.chapters = ''
+            ass_text.chapters = ''
             ass_changed = true
             return
         end
@@ -600,17 +613,16 @@ do
         a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
         a:draw_start()
         local w = chapters_marker_width/2
-        local g = this.geometry
-        local y1 = g.waveform_position[2]
-        local y2 = y1 + g.waveform_size[2]
+        local y1 = waveform_position[2]
+        local y2 = y1 + waveform_size[2]
         for _, chap in ipairs(chapters) do
-            local x = g.waveform_position[1] + g.waveform_size[1] * (chap.time / duration)
+            local x = waveform_position[1] + waveform_size[1] * (chap.time / duration)
             a:rect_cw(x - w, y1, x + w, y2)
         end
-        local x = g.waveform_position[1] + g.waveform_size[1]
+        local x = waveform_position[1] + waveform_size[1]
         a:rect_cw(x - w, y1, x + w, y2)
         a:new_event()
-        a:pos(g.text_position[1], g.text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
+        a:pos(text_position[1], text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
         a:append('{\\bord0\\an4}')
 
         local chap = math.max(0, properties["chapter"] or 0) + 1
@@ -623,7 +635,7 @@ do
             text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
             a:append(text)
         end
-        this.ass_text.chapters = a.text
+        ass_text.chapters = a.text
         ass_changed = true
     end
 
@@ -633,8 +645,8 @@ do
     local function redraw_times()
         local duration = properties["duration"]
         if duration == -1 then
-            if this.ass_text.times ~= '' then
-                this.ass_text.times = ''
+            if ass_text.times ~= '' then
+                ass_text.times = ''
                 ass_changed = true
             end
             return
@@ -649,38 +661,37 @@ do
         end
         local time_width = 65
 
-        local g = this.geometry
         local a = assdraw.ass_new()
         local show_time_at = function(x)
             if not x then return end
-            local time = (x - g.waveform_position[1]) / g.waveform_size[1] * duration
+            local time = (x - waveform_position[1]) / waveform_size[1] * duration
             local align = "8"
-            if math.abs(x - g.waveform_position[1]) < (time_width / 2) then
+            if math.abs(x - waveform_position[1]) < (time_width / 2) then
                 align = "7"
-                x = g.waveform_position[1]
-            elseif math.abs(x - (g.waveform_position[1] + g.waveform_size[1])) < (time_width / 2) then
+                x = waveform_position[1]
+            elseif math.abs(x - (waveform_position[1] + waveform_size[1])) < (time_width / 2) then
                 align = "9"
-                x = g.waveform_position[1] + g.waveform_size[1]
+                x = waveform_position[1] + waveform_size[1]
             end
             a:new_event()
-            a:pos(x, g.times_position[2])
+            a:pos(x, times_position[2])
             a:append(string.format("{\\an%s\\fs%s\\bord0}", align, time_text_size))
             a:append(format_time(time))
         end
 
         local cursor_x = nil
-        local end_x = g.waveform_position[1] + g.waveform_size[1]
+        local end_x = waveform_position[1] + waveform_size[1]
         local current_x = nil
 
         do
             local mx, my = mp.get_mouse_pos()
-            local tx = mx - g.waveform_position[1]
-            local ty = my - g.waveform_position[2]
-            if tx >= 0 and tx <= g.waveform_size[1] and ty >= 0 and ty <= g.waveform_size[2] then
+            local tx = mx - waveform_position[1]
+            local ty = my - waveform_position[2]
+            if tx >= 0 and tx <= waveform_size[1] and ty >= 0 and ty <= waveform_size[2] then
                 cursor_x = mx
                 if not scrubbing then
                     for _, chap in ipairs(properties["chapter-list"]) do
-                        local chap_x = g.waveform_position[1] + chap.time / duration * g.waveform_size[1]
+                        local chap_x = waveform_position[1] + chap.time / duration * waveform_size[1]
                         if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
                             cursor_x = chap_x
                         end
@@ -690,7 +701,7 @@ do
         end
         local pos = properties["time-pos"]
         if pos and duration then
-            current_x = g.waveform_position[1] + g.waveform_size[1] * (pos / duration)
+            current_x = waveform_position[1] + waveform_size[1] * (pos / duration)
         end
 
         -- cursor > current > end
@@ -708,7 +719,7 @@ do
         show_time_at(end_x)
         show_time_at(cursor_x)
 
-        this.ass_text.times = a.text
+        ass_text.times = a.text
         ass_changed = true
     end
 
@@ -716,8 +727,8 @@ do
         local pos = properties["time-pos"]
         local duration = properties["duration"]
         if duration == -1 or pos == -1 then
-            if this.ass_text.elapsed ~= '' then
-                this.ass_text.elapsed = ''
+            if ass_text.elapsed ~= '' then
+                ass_text.elapsed = ''
                 ass_changed = true
             end
             return
@@ -727,12 +738,12 @@ do
         a:append(string.format('{\\bord0\\shad0\\1c&%s\\1a&%s}', "222222", "AA"))
         a:pos(0,0)
         a:draw_start()
-        local y1 = this.geometry.waveform_position[2]
-        local y2 = y1 + this.geometry.waveform_size[2]
-        local x1 = this.geometry.waveform_position[1]
-        local x2 = x1 + this.geometry.waveform_size[1] * (pos / duration)
+        local y1 = waveform_position[2]
+        local y2 = y1 + waveform_size[2]
+        local x1 = waveform_position[1]
+        local x2 = x1 + waveform_size[1] * (pos / duration)
         a:rect_cw(x1, y1, x2, y2)
-        this.ass_text.elapsed = a.text
+        ass_text.elapsed = a.text
         ass_changed = true
     end
 
@@ -746,15 +757,14 @@ do
         --a:rect_cw(seekbar_position[1] + 30, seekbar_position[2] + 30, seekbar_position[1] + seekbar_size[1] - 30, seekbar_position[2] + seekbar_size[2] - 30)
         --a:append(')}')
         a:draw_start()
-        local g = this.geometry
-        a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
-        this.ass_text.background = a.text
+        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
+        ass_text.background = a.text
         ass_changed = true
     end
 
     local function set_waveform()
         local _, album = album_from_path(properties["path"])
-        if not this.active or not album then
+        if not active or not album then
             mp.commandv("playlist-remove", "current")
             return
         end
@@ -764,28 +774,27 @@ do
 
     local function set_overlay()
         local _, album = album_from_path(properties["path"])
-        if not this.active or not album then
+        if not active or not album then
             mp.commandv("overlay-remove", seekbar_overlay_index)
             return
         end
-        local g = this.geometry
         mp.commandv("overlay-add",
             seekbar_overlay_index,
-            tostring(math.floor(g.cover_position[1] + 0.5)),
-            tostring(math.floor(g.cover_position[2] + 0.5)),
+            tostring(math.floor(cover_position[1] + 0.5)),
+            tostring(math.floor(cover_position[2] + 0.5)),
             string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
                 album.artist, album.album,
-                g.cover_size[1],
-                g.cover_size[2]),
+                cover_size[1],
+                cover_size[2]),
             "0",
             "bgra",
-            tostring(g.cover_size[1]),
-            tostring(g.cover_size[2]),
-            tostring(4*g.cover_size[1]))
+            tostring(cover_size[1]),
+            tostring(cover_size[2]),
+            tostring(4*cover_size[1]))
     end
 
     local function skip_current_maybe()
-        local x, y = normalized_coordinates({mp.get_mouse_pos()}, this.geometry.cover_position, this.geometry.cover_size)
+        local x, y = normalized_coordinates({mp.get_mouse_pos()}, cover_position, cover_size)
         if x < 0 or y < 0 or x > 1 or y > 1 then return end
         send_to_server({"playlist-remove", "0"})
     end
@@ -795,13 +804,13 @@ do
         local chapters = properties["chapter-list"]
         if not duration or not chapters then return end
         local mouse_pos = {mp.get_mouse_pos()}
-        local x, y = normalized_coordinates(mouse_pos, this.geometry.waveform_position, this.geometry.waveform_size)
+        local x, y = normalized_coordinates(mouse_pos, waveform_position, waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             local snap_chap = nil
             local min_dist = nil
             for _, chap in ipairs(chapters) do
                 local dist = math.abs(x - chap.time / duration)
-                if dist * this.geometry.waveform_size[1] < seekbar_snap_distance then
+                if dist * waveform_size[1] < seekbar_snap_distance then
                     if not snap_chap or dist < min_dist then
                         snap_chap = chap.time
                         min_dist = dist
@@ -811,7 +820,7 @@ do
             send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
             return
         end
-        local x, y = normalized_coordinates(mouse_pos, this.geometry.cover_position, this.geometry.cover_size)
+        local x, y = normalized_coordinates(mouse_pos, cover_position, cover_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
             return
@@ -836,8 +845,8 @@ do
                       end, {complex=true,repeatable=false}},
     }
 
-    this.set_active = function(active)
-        this.active = active
+    this.set_active = function(new)
+        active = new
         set_overlay()
         set_waveform()
         redraw_elapsed()
@@ -850,23 +859,22 @@ do
         redraw_background(focus and background_focus or background_idle)
     end
     this.set_geometry = function(x, y, w, h)
-        local g = this.geometry
-        g.position = { x, y }
-        g.size = { w, h }
-        g.cover_size = { 150, 150 }
+        position = { x, y }
+        size = { w, h }
+        cover_size = { 150, 150 }
 
         local dist_w = 10
-        g.cover_position = { x + dist_w, y + (h - g.cover_size[2]) / 2 }
+        cover_position = { x + dist_w, y + (h - cover_size[2]) / 2 }
 
         local dist_h = 10
-        g.text_position = { x + g.cover_size[1] + 2 * dist_w, y + dist_h}
+        text_position = { x + cover_size[1] + 2 * dist_w, y + dist_h}
 
-        g.waveform_position = { g.text_position[1], g.text_position[2] + artist_album_text_size + title_text_size }
-        g.waveform_size = { w - g.cover_size[1] - 3 * dist_w, h - 2 * dist_h - (artist_album_text_size + title_text_size + time_text_size) }
-        g.times_position = { g.text_position[1], g.waveform_position[2] + g.waveform_size[2] }
+        waveform_position = { text_position[1], text_position[2] + artist_album_text_size + title_text_size }
+        waveform_size = { w - cover_size[1] - 3 * dist_w, h - 2 * dist_h - (artist_album_text_size + title_text_size + time_text_size) }
+        times_position = { text_position[1], waveform_position[2] + waveform_size[2] }
 
-        set_video_position(g.waveform_position[1], g.waveform_position[2] - 0.5 * waveform_padding_proportion * g.waveform_size[2] / (1 - waveform_padding_proportion), g.waveform_size[1], g.waveform_size[2] / (1 - waveform_padding_proportion))
-        if this.active then
+        set_video_position(waveform_position[1], waveform_position[2] - 0.5 * waveform_padding_proportion * waveform_size[2] / (1 - waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - waveform_padding_proportion))
+        if active then
             set_overlay()
             redraw_background(focus and background_focus or background_idle)
             redraw_elapsed()
@@ -875,19 +883,19 @@ do
         end
     end
 
-    this.position = function()
-        return this.geometry.position[1], this.geometry.position[2]
+    this.get_position = function()
+        return position[1], position[2]
     end
-    this.size = function()
-        return this.geometry.size[1], this.geometry.size[2]
+    this.get_size = function()
+        return size[1], size[2]
     end
-    this.ass = function()
-        return this.active and table.concat({
-            this.ass_text.background,
-            this.ass_text.elapsed,
-            this.ass_text.times,
-            this.ass_text.chapters,
-            this.ass_text.text,
+    this.get_ass = function()
+        return active and table.concat({
+            ass_text.background,
+            ass_text.elapsed,
+            ass_text.times,
+            ass_text.chapters,
+            ass_text.text,
         }, "\n") or ''
     end
 
@@ -909,7 +917,7 @@ do
     this.mouse_move = function(mx, my)
         scrubbing = left_mouse_button_held
         if not properties["path"] then return end
-        local x, y = normalized_coordinates({mx, my}, this.geometry.waveform_position, this.geometry.waveform_size)
+        local x, y = normalized_coordinates({mx, my}, waveform_position, waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             if scrubbing then
                 local duration = properties["duration"]
@@ -1187,13 +1195,13 @@ do
             redraw_buttons()
         end
     end
-    this.position = function()
+    this.get_position = function()
         return position[1], position[2]
     end
-    this.size = function()
+    this.get_size = function()
         return size[1], size[2]
     end
-    this.ass = function()
+    this.get_ass = function()
         return active and table.concat({ ass_text.background, ass_text.buttons }, '\n') or ''
     end
 
@@ -1222,19 +1230,18 @@ local lyrics_component = {}
 do
     local this = lyrics_component
 
-    this.geometry = {
-        positon = { 0, 0 },
-        size = { 0, 0 },
-    }
-    this.lyrics = {}
-    this.offset = 0
-    this.max_offset = 0
-    this.active = false
-    this.has_focus = false
-    this.autoscrolling = true
-    this.track_start = 0
-    this.track_length = 0
-    this.ass_text = {
+    local positon = { 0, 0 }
+    local size = { 0, 0 }
+
+    local active = false
+    local lyrics = {}
+    local offset = 0
+    local max_offset = 0
+    local has_focus = false
+    local autoscrolling = true
+    local track_start = 0
+    local track_length = 0
+    local ass_text = {
         background = '',
         text = '',
     }
@@ -1245,33 +1252,31 @@ do
         a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
         a:pos(0, 0)
         a:draw_start()
-        local g = this.geometry
-        a:round_rect_cw(g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2], 5)
-        this.ass_text.background = a.text
+        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
+        ass_text.background = a.text
         ass_changed = true
     end
 
     local function redraw_lyrics()
-        if #this.lyrics == 0 then
-            if this.ass_text.text ~= '' then
-                this.ass_text.text = ''
+        if #lyrics == 0 then
+            if ass_text.text ~= '' then
+                ass_text.text = ''
                 ass_changed = true
             end
             return
         end
-        local g = this.geometry
         local a = assdraw.ass_new()
         a:new_event()
         local fmt = string.format('{\\fs24\\an8\\bord0\\shad0\\clip(%d,%d,%d,%d)}',
-            g.position[1], g.position[2], g.position[1] + g.size[1], g.position[2] + g.size[2]
+            position[1], position[2], position[1] + size[1], position[2] + size[2]
         )
         -- TODO don't draw unnecessary things
-        for i, l in ipairs(this.lyrics) do
+        for i, l in ipairs(lyrics) do
             a:new_event()
-            a:pos(g.position[1] + g.size[1] / 2, g.position[2] - this.offset + (i - 1) * 24)
+            a:pos(position[1] + size[1] / 2, position[2] - offset + (i - 1) * 24)
             a:append(fmt .. l)
         end
-        this.ass_text.text = a.text
+        ass_text.text = a.text
         ass_changed = true
     end
 
@@ -1279,22 +1284,22 @@ do
         local time_pos = properties["time-pos"]
         if not time_pos then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
-        local grace_period = math.max(this.track_length / 15, 20)
-        local pos = time_pos - this.track_start
+        local grace_period = math.max(track_length / 15, 20)
+        local pos = time_pos - track_start
         if pos < grace_period then
             normalized = 0
-        elseif pos > (this.track_length - grace_period) then
+        elseif pos > (track_length - grace_period) then
             normalized = 1
         else
-            normalized = (pos - grace_period) / (this.track_length - 2 * grace_period)
+            normalized = (pos - grace_period) / (track_length - 2 * grace_period)
         end
-        this.offset = normalized * this.max_offset
+        offset = normalized * max_offset
         redraw_lyrics()
     end
 
     local function fetch_lyrics()
-        this.offset = 0
-        this.lyrics = {}
+        offset = 0
+        lyrics = {}
         local chapters = properties["chapter-list"]
         local chap = properties["chapter"]
         local duration = properties["duration"]
@@ -1304,11 +1309,11 @@ do
             return
         end
         chap = math.max(chap + 1, 1)
-        this.track_start = chapters[chap].time
+        track_start = chapters[chap].time
         if chap == #chapters then
-            this.track_length = duration - chapters[chap].time
+            track_length = duration - chapters[chap].time
         else
-            this.track_length = chapters[chap + 1].time - chapters[chap].time
+            track_length = chapters[chap + 1].time - chapters[chap].time
         end
         local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
         local path = string.format("%s/%s - %s/%s.lyr",
@@ -1321,38 +1326,38 @@ do
             msg.warn("Cannot open lyrics file " .. path)
             return
         end
-        this.lyrics[1] = ''
+        lyrics[1] = ''
         for line in string.gmatch(f:read("*all"), "([^\n]*)\n") do
-            this.lyrics[#this.lyrics + 1] = line
+            lyrics[#lyrics + 1] = line
         end
         f:close()
-        this.lyrics[#this.lyrics + 1] = ''
-        this.autoscrolling = true
-        this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
+        lyrics[#lyrics + 1] = ''
+        autoscrolling = true
+        max_offset = math.max(0, #lyrics * 24 - size[2])
         autoscroll()
     end
 
     local function clear_lyrics()
-        this.lyrics = {}
+        lyrics = {}
         redraw_lyrics()
     end
 
     local scroll = function(howmuch)
-        this.offset = math.max(0, math.min(this.offset + howmuch, this.max_offset))
-        this.autoscrolling = false
+        offset = math.max(0, math.min(offset + howmuch, max_offset))
+        autoscrolling = false
         redraw_lyrics()
     end
 
     local bindings = {
-        {"a", function() this.autoscrolling = true autoscroll() end, {}},
+        {"a", function() autoscrolling = true autoscroll() end, {}},
         {"UP", function() scroll(-25) end, {repeatable=true}},
         {"DOWN", function() scroll(25) end, {repeatable=true}},
         {"WHEEL_UP", function() scroll(-15) end, {repeatable=true}},
         {"WHEEL_DOWN", function() scroll(15) end, {repeatable=true}},
     }
 
-    this.set_active = function(active)
-        this.active = active
+    this.set_active = function(active_now)
+        active = active_now
         redraw_background(background_idle)
         if active then
             fetch_lyrics()
@@ -1368,23 +1373,26 @@ do
     end
 
     this.set_geometry = function(x, y, w, h)
-        this.geometry.position = { x, y }
-        this.geometry.size = { w, h }
-        if this.active then
-            this.max_offset = math.max(0, #this.lyrics * 24 - this.geometry.size[2])
-            this.offset = math.max(0, math.min(this.offset, this.max_offset))
-            redraw_background(this.has_focus and background_focus or background_idle)
+        position = { x, y }
+        size = { w, h }
+        if active then
+            max_offset = math.max(0, #lyrics * 24 - size[2])
+            offset = math.max(0, math.min(offset, max_offset))
+            redraw_background(has_focus and background_focus or background_idle)
             redraw_lyrics()
         end
     end
-    this.position = function()
-        return this.geometry.position[1], this.geometry.position[2]
+    this.get_active = function()
+        return active
     end
-    this.size = function()
-        return this.geometry.size[1], this.geometry.size[2]
+    this.get_position = function()
+        return position[1], position[2]
     end
-    this.ass = function()
-        return this.active and this.ass_text.background .. "\n" .. this.ass_text.text or ''
+    this.get_size = function()
+        return size[1], size[2]
+    end
+    this.get_ass = function()
+        return active and ass_text.background .. "\n" .. ass_text.text or ''
     end
 
     this.prop_changed = {
@@ -1541,7 +1549,7 @@ mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
 
 function component_from_pos(x, y)
     for _, comp in ipairs(layouts[active_layout]) do
-        local nx, ny = normalized_coordinates({x, y}, {comp.position()}, {comp.size()})
+        local nx, ny = normalized_coordinates({x, y}, {comp.get_position()}, {comp.get_size()})
         if nx >= 0 and ny >= 0 and nx <= 1 and ny <= 1 then
             return comp
         end
@@ -1613,11 +1621,11 @@ mp.register_idle(function()
         ass_changed = false
         local ww, wh = mp.get_osd_size()
         mp.set_osd_ass(ww, wh, table.concat({
-            albums_component.ass(),
-            queue_component.ass(),
-            now_playing_component.ass(),
-            lyrics_component.ass(),
-            controls_component.ass(),
+            albums_component.get_ass(),
+            queue_component.get_ass(),
+            now_playing_component.get_ass(),
+            lyrics_component.get_ass(),
+            controls_component.get_ass(),
         }, "\n"))
     end
 end)
