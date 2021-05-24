@@ -1041,7 +1041,7 @@ do
         draw_icon(forwards, 30, "m 0 0 l 0 100 l 45 70 l 45 100 l 100 50 l 45 0 l 45 30")
         draw_icon(backwards, 30, "m 100 0 l 100 100 l 55 70 l 55 100 l 0 50 l 55 0 l 55 30")
 
-        draw_icon(speakers, 22, "m -5 0 l -5 110 l 30 110 l 30 0 m 70 0 l 70 110 l 105 110 l 105 0")
+        draw_icon(speakers, 22, "m -5 5 l -5 105 l 30 105 l 30 5 m 70 5 l 70 105 l 105 105 l 105 5")
         local function circle(center, radius)
             return table.concat({
                 'm', center[1], center[2] - radius,
