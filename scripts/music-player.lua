@@ -1058,27 +1058,33 @@ do
             circle({-5 + 35/2, 30}, 7) ..
             circle({70 + 35/2, 80}, 12) ..
             circle({70 + 35/2, 30}, 7))
-        draw_icon(headphones, 22, table.concat({
+        draw_icon(headphones, 22, table.concat({ -- really could use some automatic symmetry... oh well
             'm', 50, 0,-- top of arch's highest point
-            'b', 20, 0,
-            20, 50,
-            20, 65,     -- left can, arch connection
-            'l', 0, 65, --left can, top left
-            'l', 0, 100, -- left can, bottom left
+            'b', 15, 0,
+            15, 50,
+            15, 60,     -- left can, arch connection
+            'l', 5, 60, --left can, top left
+            'b', 0, 60,
+            0, 100,
+            5, 100, -- left can, bottom left
             'l', 25, 100, -- left can, bottom right
-            'l', 25, 65, -- left can, top right
-            'b', 25, 50,
-            25, 10,
-            50, 10, -- bottom of arch's highest point
-            'b', 75, 10,
-            75, 50,
-            75, 65,
+            'l', 25, 60, -- left can, top right
+            'l', 20, 60,
+            'b', 20, 50,
+            20, 10,
+            50, 10, -- bottom of arch's highest point, symmetry point
+            'b', 80, 10,
+            80, 50,
+            80, 60,
+            'l', 75, 60,
             'l', 75, 100,
-            'l', 100, 100,
-            'l', 100, 65,
-            'l', 80, 65,
-            'b', 80, 50,
-            80, 0,
+            'l', 95, 100,
+            'b', 100, 100,
+            100, 60,
+            95, 60,
+            'l', 85, 60,
+            'b', 85, 50,
+            85, 0,
             50, 0,
         }, ' '))
 
