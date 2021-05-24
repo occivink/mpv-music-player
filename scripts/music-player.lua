@@ -1216,12 +1216,10 @@ do
             send_to_server({"set", "pause", "no"})
         elseif button == pause then
             send_to_server({"set", "pause", "yes"})
-        elseif button == backwards or button == forwards then
-            local chap = properties["chapter"]
-            if not chap then return end
-            chap = chap + (button == backwards and -1 or 1)
-            if chap < -1 then return end
-            send_to_server({"set", "chapter", tostring(chap)})
+        elseif button == backwards then
+            send_to_server({"add", "chapter", -1})
+        elseif button == forwards then
+            send_to_server({"add", "chapter", 1})
         elseif button == speakers then
             send_to_server({"set", "audio-client-name", "mmp-speakers"})
         elseif button == headphones then
