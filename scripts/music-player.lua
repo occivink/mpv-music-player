@@ -454,7 +454,7 @@ do
 
         local a = assdraw.ass_new()
         a:new_event()
-        a:append(string.format('{\\bord3\\shad0\\1c&%s&\\3c&%s&}', '444444', focus_filter and blue or '222222'))
+        a:append(string.format('{\\bord4\\shad0\\1c&%s&\\3c&%s&}', '444444', focus_filter and blue or '222222'))
         a:pos(0, 0)
         a:draw_start()
         a:rect_cw(filter_position[1], filter_position[2], filter_position[1] + filter_size[1], filter_position[2] + filter_size[2])
@@ -624,12 +624,17 @@ do
         redraw_filter()
     end
     this.set_geometry = function(x, y, w, h)
-        local filter_height = 50
         position = {x,y}
         size = {w,h}
-        filter_position = {x + 10, y + 10}
-        filter_size = {math.min(300, w - 2 * 10), filter_height - 2 * 10}
-        gallery:set_geometry(x, y + filter_height - 30, w, h - filter_height + 30, 15, 30, 150, 150)
+        local gallery_vertical_spacing = 30
+        local filter_height = 30
+        local offset = filter_height - gallery_vertical_spacing + 2 * 10
+        gallery:set_geometry(
+            x, y + offset,
+            w, h - offset,
+            15, gallery_vertical_spacing, 150, 150)
+        filter_position = {x + gallery.geometry.effective_spacing[1], y + gallery.geometry.effective_spacing[2] / 2 - 10}
+        filter_size = {math.min(300, w - 2 * 10), filter_height}
         redraw_background(focus and background_focus or background_idle)
         redraw_filter()
     end
@@ -1157,7 +1162,7 @@ do
             'l', 20, 60,
             'b', 20, 50,
             20, 10,
-            50, 10, -- bottom of arch's highest point, symmetry point
+            50, 8, -- bottom of arch's highest point, symmetry point
             'b', 80, 10,
             80, 50,
             80, 60,
