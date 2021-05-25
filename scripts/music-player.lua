@@ -667,6 +667,8 @@ do
     local text_position = {0,0}
     local times_position = {0, 0}
 
+    local time_pos_coarse = -1
+
     local ass_text = {
         background = '',
         elapsed = '',
@@ -776,9 +778,8 @@ do
                 end
             end
         end
-        local pos = properties["time-pos"]
-        if pos and duration then
-            current_x = waveform_position[1] + waveform_size[1] * (pos / duration)
+        if time_pos_coarse and duration then
+            current_x = waveform_position[1] + waveform_size[1] * (time_pos_coarse / duration)
         end
 
         -- cursor > current > end
@@ -801,9 +802,8 @@ do
     end
 
     local function redraw_elapsed()
-        local pos = properties["time-pos"]
         local duration = properties["duration"]
-        if duration == -1 or pos == -1 then
+        if duration == -1 or time_pos_coarse == -1 then
             if ass_text.elapsed ~= '' then
                 ass_text.elapsed = ''
                 ass_changed = true
@@ -818,7 +818,7 @@ do
         local y1 = waveform_position[2]
         local y2 = y1 + waveform_size[2]
         local x1 = waveform_position[1]
-        local x2 = x1 + waveform_size[1] * (pos / duration)
+        local x2 = x1 + waveform_size[1] * (time_pos_coarse / duration)
         a:rect_cw(x1, y1, x2, y2)
         ass_text.elapsed = a.text
         ass_changed = true
@@ -985,8 +985,14 @@ do
             redraw_times()
         end,
         ["chapter-list"] = function() redraw_chapters() end,
-        ["chapter"] = function() redraw_chapters() end,
-        ["time-pos"] = function() redraw_elapsed() redraw_times() end,
+        ["time-pos"] = function(value)
+            -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
+            value = math.floor(value)
+            if value == time_pos_coarse then return end
+            time_pos_coarse = value
+            redraw_elapsed()
+            redraw_times()
+        end,
         ["duration"] = function() redraw_chapters() redraw_elapsed() end,
     }
 
