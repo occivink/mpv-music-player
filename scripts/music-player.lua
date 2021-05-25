@@ -1321,10 +1321,13 @@ do
     local autoscrolling = true
     local track_start = 0
     local track_length = 0
+    local text_size = 24
     local ass_text = {
         background = '',
         text = '',
     }
+
+    local time_pos_coarse = -1
 
     local function redraw_background(color)
         local a = assdraw.ass_new()
@@ -1347,13 +1350,13 @@ do
         end
         local a = assdraw.ass_new()
         a:new_event()
-        local fmt = string.format('{\\fs24\\an8\\bord0\\shad0\\clip(%d,%d,%d,%d)}',
-            position[1], position[2], position[1] + size[1], position[2] + size[2]
+        local fmt = string.format('{\\fs%i\\an8\\bord0\\shad0\\clip(%d,%d,%d,%d)}',
+            text_size, position[1], position[2], position[1] + size[1], position[2] + size[2]
         )
         -- TODO don't draw unnecessary things
         for i, l in ipairs(lyrics) do
             a:new_event()
-            a:pos(position[1] + size[1] / 2, position[2] - offset + (i - 1) * 24)
+            a:pos(position[1] + size[1] / 2, position[2] - offset + (i - 1) * text_size)
             a:append(fmt .. l)
         end
         ass_text.text = a.text
@@ -1361,11 +1364,10 @@ do
     end
 
     local function autoscroll()
-        local time_pos = properties["time-pos"]
-        if not time_pos then return end
+        if not time_pos_coarse or time_pos_coarse == -1 then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
         local grace_period = math.max(track_length / 15, 20)
-        local pos = time_pos - track_start
+        local pos = time_pos_coarse - track_start
         if pos < grace_period then
             normalized = 0
         elseif pos > (track_length - grace_period) then
@@ -1413,7 +1415,7 @@ do
         f:close()
         lyrics[#lyrics + 1] = ''
         autoscrolling = true
-        max_offset = math.max(0, #lyrics * 24 - size[2])
+        max_offset = math.max(0, #lyrics * text_size - size[2])
         autoscroll()
     end
 
@@ -1456,7 +1458,7 @@ do
         position = { x, y }
         size = { w, h }
         if active then
-            max_offset = math.max(0, #lyrics * 24 - size[2])
+            max_offset = math.max(0, #lyrics * text_size - size[2])
             offset = math.max(0, math.min(offset, max_offset))
             redraw_background(has_focus and background_focus or background_idle)
             redraw_lyrics()
@@ -1478,7 +1480,14 @@ do
     this.prop_changed = {
         ["path"] = function(path) if path == '' then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
-        ["time-pos"] = function() if autoscrolling then autoscroll() end end,
+        ["time-pos"] = function(value)
+                           value = value - (value % 0.2)
+                           if value == time_pos_coarse then return end
+                           time_pos_coarse = value
+                           if autoscrolling then
+                               autoscroll()
+                           end
+                       end,
     }
     this.mouse_move = function(mx, my) end
 
