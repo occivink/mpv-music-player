@@ -1430,15 +1430,15 @@ do
         redraw_background(background_idle)
         if active then
             fetch_lyrics()
-            this.autoscrolling = true
+            autoscrolling = true
         else
             clear_lyrics()
         end
     end
     this.set_focus = function(focus)
         setup_bindings(bindings, "lyrics", focus)
-        this.has_focus = focus
-        redraw_background(this.has_focus and background_focus or background_idle)
+        has_focus = focus
+        redraw_background(has_focus and background_focus or background_idle)
     end
 
     this.set_geometry = function(x, y, w, h)
@@ -1467,7 +1467,7 @@ do
     this.prop_changed = {
         ["path"] = function(path) if path == '' then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
-        ["time-pos"] = function() if this.autoscrolling then autoscroll() end end,
+        ["time-pos"] = function() if autoscrolling then autoscroll() end end,
     }
     this.mouse_move = function(mx, my) end
 
