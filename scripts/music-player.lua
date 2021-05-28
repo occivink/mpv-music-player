@@ -990,6 +990,7 @@ do
             redraw_times()
         end,
         ["chapter-list"] = function() redraw_chapters() end,
+        ["chapter"] = function() redraw_chapters() end,
         ["time-pos"] = function(value)
             -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
             value = math.floor(value)
