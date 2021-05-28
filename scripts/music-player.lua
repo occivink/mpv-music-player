@@ -51,8 +51,8 @@ local gray = '555555'
 local global_offset = 15
 
 local background_opacity = 'BB'
-local background_color_focus = 'DDDDDD'
-local background_color_idle = '999999'
+local background_color_focus = 'BBBBBB'
+local background_color_idle = '666666'
 local background_border_size = '3'
 local background_border_color = '000000'
 local background_roundness = 5
