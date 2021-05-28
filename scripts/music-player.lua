@@ -49,20 +49,24 @@ local gray = '555555'
 
 -- CONFIG
 local global_offset = 15
-local background_focus="DDDDDD"
-local background_idle="999999"
-local chapters_marker_width=3
-local chapters_marker_color="888888"
-local cursor_bar_width=3
-local seekbar_snap_distance=15
-local cursor_bar_color="BBBBBB"
-local background_opacity= "BB"
-local waveform_padding_proportion=2/3
-local title_text_size=32
-local artist_album_text_size=24
-local time_text_size=24
-local darker_text_color="888888"
 
+local background_opacity = 'BB'
+local background_color_focus = 'DDDDDD'
+local background_color_idle = '999999'
+local background_border_size = '3'
+local background_border_color = '000000'
+local background_roundness = 5
+
+local chapters_marker_width = 3
+local chapters_marker_color = "888888"
+local cursor_bar_width = 3
+local seekbar_snap_distance = 15
+local cursor_bar_color = "BBBBBB"
+local waveform_padding_proportion = 2/3
+local title_text_size = 32
+local artist_album_text_size = 24
+local time_text_size = 24
+local darker_text_color = "888888"
 
 -- VARS
 local ass_changed = false
@@ -105,6 +109,21 @@ local function album_from_path(path)
         end
     end
     return nil
+end
+
+local function get_background(position, size, focused)
+    local a = assdraw.ass_new()
+    a:new_event()
+    a:append(string.format('{\\bord%s\\shad0\\1a&%s&\\1c&%s&\\3c&%s&}',
+        background_border_size,
+        background_opacity,
+        focused and background_color_focus or background_color_idle,
+        background_border_color
+    ))
+    a:pos(0, 0)
+    a:draw_start()
+    a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], background_roundness)
+    return a.text
 end
 
 do
@@ -207,10 +226,12 @@ do
     gallery.config.align_text = false
     gallery.config.max_thumbnails = 16
     gallery.config.overlay_range = 49
-    gallery.config.background_color = background_idle
-    gallery.config.background_opacity = background_opacity
+    gallery.config.background_opacity = 'ff'
 
-    local ass_text = ''
+    local ass_text = {
+        background = '',
+        gallery = '',
+    }
 
     gallery.item_to_overlay_path = function(index, item)
         local album = albums[item]
@@ -230,7 +251,7 @@ do
         return ''
     end
     gallery.ass_show = function(ass)
-        ass_text = ass
+        ass_text.gallery = ass
         ass_changed = true
     end
 
@@ -293,17 +314,22 @@ do
         active = active_now
         if active then
             gallery:activate();
+            ass_text.background = get_background(gallery.geometry.position, gallery.geometry.size, focus)
+            ass_changed = true
         else
             gallery:deactivate();
         end
     end
-    this.set_focus = function(focus)
+    this.set_focus = function(focus_now)
+        focus = focus_now
         setup_bindings(bindings, "queue", focus)
-        gallery.config.background_color = focus and background_focus or background_idle
-        gallery:ass_refresh(false, false, false, true)
+        ass_text.background = get_background(gallery.geometry.position, gallery.geometry.size, focus)
+        ass_changed = true
     end
     this.set_geometry = function(x, y, w, h)
         gallery:set_geometry(x, y, w, h, 15, 15, 150, 150)
+        ass_text.background = get_background(gallery.geometry.position, gallery.geometry.size, focus)
+        ass_changed = true
     end
     this.get_active = function()
         return active
@@ -315,7 +341,7 @@ do
         return gallery.geometry.size[1], gallery.geometry.size[2]
     end
     this.get_ass = function()
-        return ass_text
+        return active and table.concat({ass_text.background, ass_text.gallery}, '\n') or ''
     end
 
     this.prop_changed = {
@@ -433,17 +459,6 @@ do
         end
     end
 
-    local function redraw_background(color)
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
-        a:pos(0, 0)
-        a:draw_start()
-        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
-        ass_text.background = a.text
-        ass_changed = true
-    end
-
     local function redraw_filter()
         local filter_escaped = filter
         filter_escaped = filter_escaped:gsub('\\', '\\\239\187\191')
@@ -454,7 +469,7 @@ do
 
         local a = assdraw.ass_new()
         a:new_event()
-        a:append(string.format('{\\bord4\\shad0\\1c&%s&\\3c&%s&}', '444444', focus_filter and blue or '222222'))
+        a:append(string.format('{\\bord4\\shad0\\1a&%s&\\3c&%s&}', 'ff', focus_filter and blue or '222222'))
         a:pos(0, 0)
         a:draw_start()
         a:rect_cw(filter_position[1], filter_position[2], filter_position[1] + filter_size[1], filter_position[2] + filter_size[2])
@@ -611,17 +626,18 @@ do
         else
             gallery:deactivate();
         end
-        redraw_background(focus and background_focus or background_idle)
+        ass_text.background = get_background(position, size, focus)
         redraw_filter()
+        ass_changed = true
     end
     this.set_focus = function(focus_now)
         focus = focus_now
         setup_bindings(bindings, "albums", focus)
-        gallery.config.background_color = focus and background_focus or background_idle
         gallery:ass_refresh(false, false, false, true)
-        redraw_background(focus and background_focus or background_idle)
         focus_filter = false
+        ass_text.background = get_background(position, size, focus)
         redraw_filter()
+        ass_changed = true
     end
     this.set_geometry = function(x, y, w, h)
         position = {x,y}
@@ -635,8 +651,9 @@ do
             15, gallery_vertical_spacing, 150, 150)
         filter_position = {x + gallery.geometry.effective_spacing[1], y + gallery.geometry.effective_spacing[2] / 2 - 10}
         filter_size = {math.min(300, w - 2 * 10), filter_height}
-        redraw_background(focus and background_focus or background_idle)
+        ass_text.background = get_background(position, size, focus)
         redraw_filter()
+        ass_changed = true
     end
     this.get_position = function()
         return position[1], position[2]
@@ -682,6 +699,7 @@ do
         text = '',
     }
     local active = false
+    local focus = false
 
     local function redraw_chapters()
         local duration = properties["duration"]
@@ -829,21 +847,6 @@ do
         ass_changed = true
     end
 
-    local function redraw_background(color)
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
-        a:pos(0, 0)
-        --a:append('{\\iclip(4,')
-        --local ww, wh = mp.get_osd_size()
-        --a:rect_cw(seekbar_position[1] + 30, seekbar_position[2] + 30, seekbar_position[1] + seekbar_size[1] - 30, seekbar_position[2] + seekbar_size[2] - 30)
-        --a:append(')}')
-        a:draw_start()
-        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
-        ass_text.background = a.text
-        ass_changed = true
-    end
-
     local function set_waveform()
         local _, album = album_from_path(properties["path"])
         if not active or not album then
@@ -927,18 +930,21 @@ do
                       end, {complex=true,repeatable=false}},
     }
 
-    this.set_active = function(new)
-        active = new
+    this.set_active = function(newactive)
+        active = newactive
         set_overlay()
         set_waveform()
         redraw_elapsed()
         redraw_times()
         redraw_chapters()
-        redraw_background(background_idle)
+        ass_text.background = get_background(position, size, focus)
+        ass_changed = true
     end
-    this.set_focus = function(focus)
+    this.set_focus = function(newfocus)
+        focus = newfocus
         setup_bindings(bindings, "seekbar", focus)
-        redraw_background(focus and background_focus or background_idle)
+        ass_text.background = get_background(position, size, focus)
+        ass_changed = true
     end
     this.set_geometry = function(x, y, w, h)
         position = { x, y }
@@ -958,10 +964,11 @@ do
         set_video_position(waveform_position[1], waveform_position[2] - 0.5 * waveform_padding_proportion * waveform_size[2] / (1 - waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - waveform_padding_proportion))
         if active then
             set_overlay()
-            redraw_background(focus and background_focus or background_idle)
             redraw_elapsed()
             redraw_times()
             redraw_chapters()
+            ass_text.background = get_background(position, size, focus)
+            ass_changed = true
         end
     end
 
@@ -1033,7 +1040,7 @@ do
     local position = {0, 0}
     local size = {0, 0}
     local active = false
-    local has_focus = false
+    local focus = false
 
     local play = {}
     local pause = {}
@@ -1185,23 +1192,12 @@ do
         ass_changed = true
     end
 
-    local function redraw_background(color)
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
-        a:pos(0, 0)
-        a:draw_start()
-        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
-        ass_text.background = a.text
-        ass_changed = true
-    end
-
     this.set_active = function(active_now)
         active = active_now
-        redraw_background(background_idle)
         if active then
-            redraw_background(has_focus and background_focus or background_idle)
+            ass_text.background = get_background(position, size, focus)
             redraw_buttons()
+            ass_changed = true
         end
     end
 
@@ -1245,11 +1241,12 @@ do
         {"MBTN_LEFT", press_button, {complex=true, repeatable=false}},
     }
 
-    this.set_focus = function(focus)
+    this.set_focus = function(focus_now)
+        focus = focus_now
         setup_bindings(bindings, "controls", focus)
-        has_focus = focus
-        if not has_focus then holding_volume = false end
-        redraw_background(has_focus and background_focus or background_idle)
+        if not focus then holding_volume = false end
+        ass_text.background = get_background(position, size, focus)
+        ass_changed = true
     end
 
     this.set_geometry = function(x, y, w, h)
@@ -1272,8 +1269,9 @@ do
         set_pos(mute,       0.05, 0.80,  0.15, 0.15)
         set_pos(volume,     0.23, 0.825, 0.72, 0.10)
         if active then
-            redraw_background(has_focus and background_focus or background_idle)
+            ass_text.background = get_background(position, size, focus)
             redraw_buttons()
+            ass_changed = true
         end
     end
     this.get_position = function()
@@ -1315,10 +1313,11 @@ do
     local size = { 0, 0 }
 
     local active = false
+    local focus = false
+
     local lyrics = {}
     local offset = 0
     local max_offset = 0
-    local has_focus = false
     local autoscrolling = true
     local track_start = 0
     local track_length = 0
@@ -1329,17 +1328,6 @@ do
     }
 
     local time_pos_coarse = -1
-
-    local function redraw_background(color)
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1a&%s&\\1c&%s&}', background_opacity, color))
-        a:pos(0, 0)
-        a:draw_start()
-        a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], 5)
-        ass_text.background = a.text
-        ass_changed = true
-    end
 
     local function redraw_lyrics()
         if #lyrics == 0 then
@@ -1441,18 +1429,20 @@ do
 
     this.set_active = function(active_now)
         active = active_now
-        redraw_background(background_idle)
+        ass_text.background = get_background(position, size, focus)
         if active then
             fetch_lyrics()
             autoscrolling = true
         else
             clear_lyrics()
         end
+        ass_changed = true
     end
-    this.set_focus = function(focus)
+    this.set_focus = function(focus_now)
+        focus = focus_now
         setup_bindings(bindings, "lyrics", focus)
-        has_focus = focus
-        redraw_background(has_focus and background_focus or background_idle)
+        ass_text.background = get_background(position, size, focus)
+        ass_changed = true
     end
 
     this.set_geometry = function(x, y, w, h)
@@ -1461,8 +1451,9 @@ do
         if active then
             max_offset = math.max(0, #lyrics * text_size - size[2])
             offset = math.max(0, math.min(offset, max_offset))
-            redraw_background(has_focus and background_focus or background_idle)
+            ass_text.background = get_background(position, size, focus)
             redraw_lyrics()
+            ass_changed = true
         end
     end
     this.get_active = function()
