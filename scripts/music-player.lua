@@ -586,7 +586,12 @@ do
         end
     end
     local function handle_unicode(table)
-        if table["event"] == "down" or table["event"] == "repeat" then
+        -- special handling for space: if filter is focused: insert space, otherwise toggle pause
+        if not focus_filter and table.key_name == "SPACE" then
+            if table["event"] == "down" then
+                send_to_server({"cycle", "pause"})
+            end
+        elseif table["event"] == "down" or table["event"] == "repeat" then
             focus_filter = true
             append_char(table.key_text)
         end
