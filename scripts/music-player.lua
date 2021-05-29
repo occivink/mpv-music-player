@@ -857,16 +857,22 @@ do
             end
             return
         end
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:append(string.format('{\\bord0\\shad0\\1c&%s\\1a&%s}', "222222", "AA"))
-        a:pos(0,0)
-        a:draw_start()
         local y1 = waveform_position[2]
         local y2 = y1 + waveform_size[2]
         local x1 = waveform_position[1]
         local x2 = x1 + waveform_size[1] * (time_pos_coarse / duration)
+
+        local a = assdraw.ass_new()
+        a:new_event()
+        a:pos(0,0)
+        a:append(string.format('{\\bord0\\shad0\\1c&%s\\1a&%s}', "222222", "AA"))
+        a:draw_start()
         a:rect_cw(x1, y1, x2, y2)
+        a:new_event()
+        a:pos(0,0)
+        a:append(string.format('{\\r\\bord0\\shad0\\1c&%s\\1a&%s}', blue, "00"))
+        a:draw_start()
+        a:rect_cw(x2 - 1.5, y1, x2 + 1.5, y2)
         ass_text.elapsed = a.text
         ass_changed = true
     end
@@ -1005,10 +1011,10 @@ do
     this.get_ass = function()
         return active and table.concat({
             ass_text.background,
-            ass_text.elapsed,
             ass_text.times,
             ass_text.chapters,
             ass_text.text,
+            ass_text.elapsed,
         }, "\n") or ''
     end
 
