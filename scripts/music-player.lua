@@ -460,11 +460,22 @@ do
     end
 
     local function redraw_filter()
-        local filter_escaped = filter
-        filter_escaped = filter_escaped:gsub('\\', '\\\239\187\191')
-        filter_escaped = filter_escaped:gsub('{', '\\{')
-        filter_escaped = filter_escaped:gsub('}', '\\}')
-        filter_escaped = filter_escaped:gsub('^ ', '\\h')
+        local ass_escape = function(ass)
+            ass = ass:gsub('\\', '\\\239\187\191')
+            ass = ass:gsub('{', '\\{')
+            ass = ass:gsub('}', '\\}')
+            ass = ass:gsub('^ ', '\\h')
+            return ass
+        end
+
+        local coffset = 8
+        local cheight = 28 * 8
+        local cglyph = '{\\r' ..
+           '\\1a&H44&\\3a&H44&\\4a&H99&' ..
+           '\\1c&Heeeeee&\\3c&Heeeeee&\\4c&H000000&' ..
+           '\\xbord1\\ybord0\\xshad0\\yshad1\\p4\\pbo24}' ..
+           'm 0 ' .. coffset.. ' l 1 ' .. coffset .. ' l 1 ' .. cheight .. ' l 0 ' .. cheight ..
+           '{\\p0}'
 
         local a = assdraw.ass_new()
         a:new_event()
@@ -472,10 +483,15 @@ do
         a:pos(0, 0)
         a:draw_start()
         a:rect_cw(filter_position[1], filter_position[2], filter_position[1] + filter_size[1], filter_position[2] + filter_size[2])
-        a:new_event()
-        a:pos(filter_position[1] + 5, filter_position[2] + filter_size[2] / 2)
-        a:an(4)
-        a:append(string.format("{\\bord0\\fs%d}%s", 28, filter_escaped))
+        if filter ~= '' then
+            a:new_event()
+            a:pos(filter_position[1] + 5, filter_position[2] + filter_size[2] / 2)
+            a:an(4)
+            local style = string.format("{\\r\\bord0\\fs%d}", 28)
+            a:append(style .. ass_escape(string.sub(filter, 1, cursor - 1)))
+            a:append(cglyph)
+            a:append(style .. ass_escape(string.sub(filter, cursor)))
+        end
         ass_text.filter = a.text
         ass_changed = true
     end
@@ -524,8 +540,8 @@ do
     end
     local function append_char(c)
         filter = filter:sub(1, cursor - 1) .. c .. filter:sub(cursor)
-        filter_changed()
         cursor = cursor + #c
+        filter_changed()
     end
     local function del_char_left()
         if cursor <= 1 then return end
@@ -541,10 +557,22 @@ do
     end
     local function handle_left()
         if focus_filter then
-            cursor = prev_utf8(filter, cursor)
-            redraw_filter()
+            if cursor > 1 then
+                cursor = prev_utf8(filter, cursor)
+                redraw_filter()
+            end
         else
             increase_pending(-1)
+        end
+    end
+    local function handle_right()
+        if focus_filter then
+            if cursor < filter:len() then
+                cursor = next_utf8(filter, cursor)
+                redraw_filter()
+            end
+        else
+            increase_pending(1)
         end
     end
     local function handle_home()
@@ -576,14 +604,6 @@ do
         cursor = 1
         focus_filter = false
         filter_changed()
-    end
-    local function handle_right()
-        if focus_filter then
-            cursor = next_utf8(filter, cursor)
-            redraw_filter()
-        else
-            increase_pending(1)
-        end
     end
     local function handle_unicode(table)
         -- special handling for space: if filter is focused: insert space, otherwise toggle pause
