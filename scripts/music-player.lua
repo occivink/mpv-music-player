@@ -48,14 +48,14 @@ local white = '999999'
 local gray = '555555'
 
 -- CONFIG
-local global_offset = 15
+local global_offset = 10
 
 local background_opacity = 'BB'
-local background_color_focus = 'BBBBBB'
+local background_color_focus = 'AAAAAA'
 local background_color_idle = '666666'
 local background_border_size = '3'
 local background_border_color = '000000'
-local background_roundness = 5
+local background_roundness = 2
 
 local chapters_marker_width = 3
 local chapters_marker_color = "888888"
@@ -1532,6 +1532,7 @@ local layouts = {
     },
 }
 local active_layout = "EMPTY"
+local focused_component = nil
 
 function layout_geometry(ww, wh)
     local ww, wh = mp.get_osd_size()
@@ -1624,6 +1625,18 @@ local size_changed = false
 for _, prop in ipairs({"osd-width", "osd-height"}) do
     mp.observe_property(prop, "native", function() size_changed = true end)
 end
+local prev_focused_component = nil
+mp.observe_property("focused", "native", function(_, val)
+    if val and not focused_component and prev_focused_component then
+        focused_component = prev_focused_component
+        focused_component.set_focus(true)
+        prev_focused_component = nil
+    elseif not val and focused_component then
+        focused_component.set_focus(false)
+        prev_focused_component = focused_component
+        focused_component = nil
+    end
+end)
 
 local mouse_moved = false
 mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
