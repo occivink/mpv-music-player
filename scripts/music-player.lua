@@ -464,7 +464,6 @@ do
         filter_escaped = filter_escaped:gsub('\\', '\\\239\187\191')
         filter_escaped = filter_escaped:gsub('{', '\\{')
         filter_escaped = filter_escaped:gsub('}', '\\}')
-        filter_escaped = filter_escaped:gsub('\\N ', '\\N\\h')
         filter_escaped = filter_escaped:gsub('^ ', '\\h')
 
         local a = assdraw.ass_new()
@@ -1239,6 +1238,13 @@ do
 
     local bindings = {
         {"MBTN_LEFT", press_button, {complex=true, repeatable=false}},
+        {"m", function() send_to_server({"cycle", "mute"}) end, {}},
+        {"s", function() send_to_server({"set", "audio-client-name", "mmp-speakers"}) end, {}},
+        {"h", function() send_to_server({"set", "audio-client-name", "mmp-headphones"}) end, {}},
+        {"RIGHT", function() send_to_server({"add", "chapter", 1}) end, {}},
+        {"LEFT", function() send_to_server({"add", "chapter", -1}) end, {}},
+        {"UP", function() send_to_server({"add", "volume", 5}) end, {repeatable=true}},
+        {"DOWN", function() send_to_server({"add", "volume", -5}) end, {repeatable=true}},
     }
 
     this.set_focus = function(focus_now)
