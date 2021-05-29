@@ -1624,9 +1624,6 @@ function focus_next_component(backwards)
     end
 end
 
-mp.add_forced_key_binding("TAB", "tab", function() focus_next_component(false) end, { repeatable=true })
-mp.add_forced_key_binding("SHIFT+TAB", "backtab", function() focus_next_component(true) end, { repeatable=true })
-
 local size_changed = false
 for _, prop in ipairs({"osd-width", "osd-height"}) do
     mp.observe_property(prop, "native", function() size_changed = true end)
@@ -1644,9 +1641,6 @@ mp.observe_property("focused", "native", function(_, val)
     end
 end)
 
-local mouse_moved = false
-mp.add_forced_key_binding("mouse_move", function() mouse_moved = true end)
-
 function component_from_pos(x, y)
     for _, comp in ipairs(layouts[active_layout]) do
         local nx, ny = normalized_coordinates({x, y}, {comp.get_position()}, {comp.get_size()})
@@ -1657,8 +1651,18 @@ function component_from_pos(x, y)
     return nil
 end
 
+local mouse_moved = false
+
+setup_bindings({
+    {"SPACE", function() send_to_server({"cycle", "pause"}) end, {}},
+    {"TAB", function() focus_next_component(false) end, { repeatable=true }},
+    {"SHIFT+TAB", function() focus_next_component(true) end, { repeatable=true }},
+    {"mouse_move", function() mouse_moved = true end, {}},
+}, "global", true)
+
+mp.add_key_binding(nil, "music-player-set-layout", set_active_layout)
+
 local started = false
-mp.add_forced_key_binding(nil, "music-player-set-layout", set_active_layout)
 
 -- coalesce stuff together
 local props_changed = {}
