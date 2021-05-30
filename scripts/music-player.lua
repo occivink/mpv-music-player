@@ -1040,6 +1040,8 @@ do
 
     this.prop_changed = {
         ["path"] = function()
+            left_mouse_button_held = false
+            scrub_stop()
             set_waveform()
             set_overlay()
             redraw_chapters()
@@ -1071,14 +1073,13 @@ do
         end
         if not properties["path"] then return end
         local x, y = normalized_coordinates({mx, my}, waveform_position, waveform_size)
-        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-            if scrubbing then
-                local duration = properties["duration"]
-                -- no snapping in this case
-                if duration then
-                    send_to_server({"set_property", "time-pos", tostring(x * duration)})
-                end
+        if scrubbing then
+            local duration = properties["duration"]
+            -- no snapping in this case
+            if duration then
+                send_to_server({"set_property", "time-pos", tostring(math.max(0, math.min(x, 1) * duration))})
             end
+        elseif x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             redraw_times()
             cursor_visible = true
         elseif cursor_visible then
