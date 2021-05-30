@@ -567,7 +567,7 @@ do
     end
     local function handle_right()
         if focus_filter then
-            if cursor < filter:len() then
+            if cursor <= filter:len() then
                 cursor = next_utf8(filter, cursor)
                 redraw_filter()
             end
