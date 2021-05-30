@@ -765,8 +765,12 @@ do
         ass_changed = true
     end
 
+    -- related to holding left mouse button on the seekbar
     local left_mouse_button_held = false
     local scrubbing = false
+    local volume_before_scrub = nil
+    local ignore_volume_change_once = false
+    local scrubbing_volume_ratio = 0.5
 
     local function redraw_times()
         local duration = properties["duration"]
@@ -872,7 +876,7 @@ do
         a:pos(0,0)
         a:append(string.format('{\\r\\bord0\\shad0\\1c&%s\\1a&%s}', blue, "00"))
         a:draw_start()
-        a:rect_cw(x2 - 1.5, y1, x2 + 1.5, y2)
+        a:rect_cw(x2 - 1.5, y1, x2 + 2, y2)
         ass_text.elapsed = a.text
         ass_changed = true
     end
@@ -914,7 +918,7 @@ do
         send_to_server({"playlist-remove", "0"})
     end
 
-    local function seek_or_pause()
+    local function seek_maybe()
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
         if not duration or not chapters then return end
@@ -933,13 +937,25 @@ do
                 end
             end
             send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
-            return
         end
-        local x, y = normalized_coordinates(mouse_pos, cover_position, cover_size)
-        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-            send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
-            return
+    end
+
+    local function scrub_start()
+        if scrubbing then return end
+        scrubbing = true
+        volume_before_scrub = properties["volume"]
+        ignore_volume_change_once = true
+        send_to_server({"set_property", "volume", volume_before_scrub * scrubbing_volume_ratio})
+    end
+
+    local function scrub_stop()
+        if not scrubbing then return end
+        scrubbing = false
+        if volume_before_scrub then
+            send_to_server({"set_property", "volume", volume_before_scrub})
+            volume_before_scrub = nil
         end
+        ignore_volume_change_once = false
     end
 
     local bindings = {
@@ -955,8 +971,8 @@ do
         {"MBTN_RIGHT", function() skip_current_maybe() end, {}},
         {"MBTN_LEFT", function(table)
                           left_mouse_button_held = (table["event"] == "down")
-                          scrubbing = false
-                          if left_mouse_button_held then seek_or_pause() end
+                          if left_mouse_button_held then seek_maybe() end
+                          scrub_stop()
                       end, {complex=true,repeatable=false}},
     }
 
@@ -972,6 +988,10 @@ do
     end
     this.set_focus = function(newfocus)
         focus = newfocus
+        if not focus then
+            left_mouse_button_held = false
+            scrub_stop()
+        end
         setup_bindings(bindings, "seekbar", focus)
         ass_text.background = get_background(position, size, focus)
         ass_changed = true
@@ -1029,19 +1049,26 @@ do
         ["chapter-list"] = function() redraw_chapters() end,
         ["chapter"] = function() redraw_chapters() end,
         ["time-pos"] = function(value)
-            -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
-            value = math.floor(value)
-            if value == time_pos_coarse then return end
-            time_pos_coarse = value
-            redraw_elapsed()
-            redraw_times()
-        end,
+                           -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
+                           value = math.floor(value)
+                           if value == time_pos_coarse then return end
+                           time_pos_coarse = value
+                           redraw_elapsed()
+                           redraw_times()
+                       end,
         ["duration"] = function() redraw_chapters() redraw_elapsed() end,
+        ["volume"] = function(val)
+                         -- timing dependent, but probably ok
+                         if not ignore_volume_change_once then volume_before_scrub = nil end
+                         ignore_volume_change_once = false
+                     end,
     }
 
     local cursor_visible = false
     this.mouse_move = function(mx, my)
-        scrubbing = left_mouse_button_held
+        if left_mouse_button_held then
+            scrub_start()
+        end
         if not properties["path"] then return end
         local x, y = normalized_coordinates({mx, my}, waveform_position, waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
