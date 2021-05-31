@@ -233,6 +233,22 @@ do
         gallery = '',
     }
 
+    local function refresh_list()
+        local prev_index = queue[gallery.selection]
+        local new_sel = nil
+        for i, _ in pairs(queue) do queue[i] = nil end
+        local playlist = properties["playlist"]
+        for i = 2, #playlist do
+            local item = playlist[i].filename
+            local index = album_from_path(item)
+            queue[#queue + 1] = index
+            if index == prev_index then
+                new_sel = #queue
+            end
+        end
+        return new_sel or 1
+    end
+
     gallery.item_to_overlay_path = function(index, item)
         local album = albums[item]
         return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
@@ -313,6 +329,8 @@ do
     this.set_active = function(active_now)
         active = active_now
         if active then
+            local new_sel = refresh_list()
+            gallery:set_selection(new_sel)
             gallery:activate();
             ass_text.background = get_background(gallery.geometry.position, gallery.geometry.size, focus)
             ass_changed = true
@@ -345,20 +363,9 @@ do
     end
 
     this.prop_changed = {
-        ["playlist"] = function(val)
-            -- queue = {} is no good because it creates a new object or something
-            local prev_index = queue[gallery.selection]
-            local new_sel = nil
-            for i in pairs(queue) do queue[i] = nil end
-            for i = 2, #val do
-                local item = val[i].filename
-                local index = album_from_path(item)
-                queue[#queue + 1] = index
-                if index == prev_index then
-                    new_sel = #queue
-                end
-            end
-            gallery:items_changed(new_sel or 1)
+        ["playlist"] = function()
+            local new_sel = refresh_list()
+            gallery:items_changed(new_sel)
         end
     }
 
