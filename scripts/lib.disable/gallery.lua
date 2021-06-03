@@ -212,7 +212,7 @@ function gallery_mt.ensure_view_valid(gallery)
             v.first = v.last - g.columns + 1
         else
             local last_row = math.floor((v.last - 1) / g.columns)
-            local first_row = math.max(0, last_row - g.rows + 1)
+            local first_row = math.max(1, last_row - g.rows + 1)
             v.first = 1 + first_row * g.columns
         end
         changed = true
