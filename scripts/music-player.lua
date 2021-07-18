@@ -29,6 +29,16 @@ local g_waveforms_dir = mp.command_native({"expand-path", opts.waveforms_dir})
 local g_lyrics_dir = mp.command_native({"expand-path", opts.lyrics_dir})
 local g_albums_file = mp.command_native({"expand-path", opts.albums_file})
 
+do
+    for _, p in ipairs({g_root_dir, g_thumbs_dir, g_waveforms_dir, g_lyrics_dir}) do
+        local fi = utils.file_info(p)
+        if not fi or not fi.is_dir then
+            msg.error(string.format("Directory '%s' does not exist", p))
+            mp.commandv('quit')
+        end
+    end
+end
+
 local client = nil
 while true do
     client = socket()
