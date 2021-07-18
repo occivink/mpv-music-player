@@ -13,10 +13,10 @@ package.path = package.path .. ';' .. lib .. '/?.lua;'
 require 'gallery'
 
 local opts = {
-    socket = "/tmp/mmp_socket",
+    socket = "mmp_socket",
     root_dir = "music",
     thumbs_dir = "thumbs",
-    waveforms_dir = "waveform",
+    waveforms_dir = "waveforms",
     lyrics_dir = "lyrics",
     albums_file = '', -- for optimization purposes
     default_layout = "BROWSE",
@@ -35,6 +35,7 @@ do
         if not fi or not fi.is_dir then
             msg.error(string.format("Directory '%s' does not exist", p))
             mp.commandv('quit')
+            return
         end
     end
 end

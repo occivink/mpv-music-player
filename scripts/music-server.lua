@@ -3,7 +3,7 @@ local options = require 'mp.options'
 
 -- options are shared between client and server, so that the socket is only defined in one place
 local opts = {
-    socket = "/tmp/mmp_socket",
+    socket = "mmp_socket",
 }
 options.read_options(opts, "music-player")
 
