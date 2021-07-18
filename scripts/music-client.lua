@@ -2,8 +2,8 @@ local client = require 'socket.unix'()
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
-mp.register_script_message("listener-start", function(server_address, client_script)
-    mp.unregister_script_message("listener-start")
+mp.register_script_message("music-client-start", function(server_address, client_script)
+    mp.unregister_script_message("music-client-start")
     if not client:connect(server_address) then
         msg.error("Cannot connect, aborting")
         return

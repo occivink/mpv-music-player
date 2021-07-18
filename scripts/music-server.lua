@@ -1,4 +1,19 @@
 local utils = require 'mp.utils'
+local options = require 'mp.options'
+
+-- options are shared between client and server, so that the socket is only defined in one place
+local opts = {
+    socket = "/tmp/mmp_socket",
+    root_dir = '',
+    thumbs_dir = '',
+    waveforms_dir = '',
+    lyrics_dir = '',
+    albums_file = '',
+    default_layout = '',
+}
+options.read_options(opts, "music-player")
+
+mp.set_property("input-ipc-server", opts.socket)
 
 mp.observe_property("playlist-pos", "number", function(_, val)
     if val and val > 0 then

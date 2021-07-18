@@ -1,6 +1,7 @@
 local socket = require 'socket.unix'
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
+local options = require 'mp.options'
 local msg = require 'mp.msg'
 
 local lib = mp.find_config_file('scripts/lib.disable')
@@ -12,15 +13,21 @@ package.path = package.path .. ';' .. lib .. '/?.lua;'
 require 'gallery'
 
 local opts = {
+    socket = "/tmp/mmp_socket",
     root_dir = "music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveform",
     lyrics_dir = "lyrics",
     albums_file = '', -- for optimization purposes
-    socket = "bob",
     default_layout = "BROWSE",
 }
-(require 'mp.options').read_options(opts)
+options.read_options(opts, "music-player")
+
+local g_root_dir = mp.command_native({"expand-path", opts.root_dir})
+local g_thumbs_dir = mp.command_native({"expand-path", opts.thumbs_dir})
+local g_waveforms_dir = mp.command_native({"expand-path", opts.waveforms_dir})
+local g_lyrics_dir = mp.command_native({"expand-path", opts.lyrics_dir})
+local g_albums_file = mp.command_native({"expand-path", opts.albums_file})
 
 local client = nil
 while true do
@@ -127,12 +134,12 @@ local function get_background(position, size, focused)
 end
 
 do
-    if opts.albums_file == '' then
-        local artists = utils.readdir(opts.root_dir)
+    if g_albums_file == '' then
+        local artists = utils.readdir(g_root_dir)
         if not artists then return end
         table.sort(artists)
         for _, artist in ipairs(artists) do
-            local yearalbums = utils.readdir(opts.root_dir .. "/" .. artist)
+            local yearalbums = utils.readdir(g_root_dir .. "/" .. artist)
             table.sort(yearalbums)
             for _, yearalbum in ipairs(yearalbums) do
                 local year, album = string.match(yearalbum, "^(%d+) %- (.*)$")
@@ -141,13 +148,13 @@ do
                         artist = string.gsub(artist, '\\', '/'),
                         album = string.gsub(album, '\\', '/'),
                         year = year,
-                        dir = string.format("%s/%s/%s", opts.root_dir, artist, yearalbum)
+                        dir = string.format("%s/%s/%s", g_root_dir, artist, yearalbum)
                     }
                 end
             end
         end
     else
-        local f = io.open(opts.albums_file, "r")
+        local f = io.open(g_albums_file, "r")
         while true do
             local line = f:read()
             if not line then break end
@@ -157,7 +164,7 @@ do
                     artist = artist,
                     album = album,
                     year = year,
-                    dir = string.format("%s/%s/%s - %s", opts.root_dir,
+                    dir = string.format("%s/%s/%s - %s", g_root_dir,
                         string.gsub(artist, '/', '\\'),
                         year,
                         string.gsub(album, '/', '\\'))
@@ -251,7 +258,7 @@ do
 
     gallery.item_to_overlay_path = function(index, item)
         local album = albums[item]
-        return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+        return string.format("%s/%s - %s_%s_%s", g_thumbs_dir,
             album.artist, album.album,
             gallery.geometry.thumbnail_size[1],
             gallery.geometry.thumbnail_size[2]
@@ -427,7 +434,7 @@ do
 
 
     gallery.item_to_overlay_path = function(index, item)
-        return string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+        return string.format("%s/%s - %s_%s_%s", g_thumbs_dir,
             item.artist, item.album,
             gallery.geometry.thumbnail_size[1],
             gallery.geometry.thumbnail_size[2]
@@ -562,6 +569,18 @@ do
         filter = filter:sub(1, cursor - 1) .. filter:sub(next_utf8(filter, cursor))
         filter_changed()
     end
+    function handle_ctrl_left()
+        if not focus_filter then return end
+        cursor = filter:len() - select(2, filter:reverse():find('%s*[^%s]*', filter:len() - cursor + 2)) + 1
+        redraw_filter()
+    end
+
+    function handle_ctrl_right()
+        if not focus_filter then return end
+        cursor = select(2, filter:find('%s*[^%s]*', cursor)) + 1
+        redraw_filter()
+    end
+
     local function handle_left()
         if focus_filter then
             if cursor > 1 then
@@ -635,8 +654,8 @@ do
         {"DEL", del_char_right, {repeatable=true}},
         {"LEFT", handle_left, {repeatable=true}},
         {"RIGHT", handle_right, {repeatable=true}},
-        {"CTRL+LEFT", function() end, {repeatable=true}}, -- TODO
-        {"CTRL+RIGHT", function() end, {repeatable=true}}, -- TODO
+        {"CTRL+LEFT", handle_ctrl_left, {repeatable=true}},
+        {"CTRL+RIGHT", handle_ctrl_right, {repeatable=true}},
         {"ENTER", handle_enter, {}},
         {"ESC", handle_esc, {}},
         {"ALT+f", toggle_focus_filter, {}},
@@ -645,6 +664,8 @@ do
         {"DOWN", function() increase_pending(gallery.geometry.columns) end, {repeatable=true}},
         {"WHEEL_UP", function() increase_pending(-gallery.geometry.columns) end, {}},
         {"WHEEL_DOWN", function() increase_pending(gallery.geometry.columns) end, {}},
+        {"PGUP", function() increase_pending(-gallery.geometry.columns * gallery.geometry.rows) end, {repeatable=true}},
+        {"PGDWN", function() increase_pending(gallery.geometry.columns * gallery.geometry.rows) end, {repeatable=true}},
         {"HOME", handle_home, {}},
         {"END", handle_end, {}},
         {"MBTN_LEFT", select_or_queue, {}},
@@ -894,7 +915,7 @@ do
             mp.commandv("playlist-remove", "current")
             return
         end
-        local wavefile = string.format("%s/%d - %s.png", opts.waveforms_dir, album.year, string.gsub(album.album, ':', '\\:'))
+        local wavefile = string.format("%s/%d - %s.png", g_waveforms_dir, album.year, string.gsub(album.album, ':', '\\:'))
         mp.commandv("loadfile", wavefile, "replace")
     end
 
@@ -908,7 +929,7 @@ do
             seekbar_overlay_index,
             tostring(math.floor(cover_position[1] + 0.5)),
             tostring(math.floor(cover_position[2] + 0.5)),
-            string.format("%s/%s - %s_%s_%s", opts.thumbs_dir,
+            string.format("%s/%s - %s_%s_%s", g_thumbs_dir,
                 album.artist, album.album,
                 cover_size[1],
                 cover_size[2]),
@@ -1460,7 +1481,7 @@ do
         end
         local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
         local path = string.format("%s/%s - %s/%s.lyr",
-            opts.lyrics_dir,
+            g_lyrics_dir,
             album.artist,
             album.album,
             title)
@@ -1800,6 +1821,8 @@ mp.register_idle(function()
     end
 end)
 
+mp.commandv("enable-section", "music-player")
+
 local start_time = mp.get_time()
 local start_listener
 start_listener = mp.add_periodic_timer(0.05, function()
@@ -1808,7 +1831,7 @@ start_listener = mp.add_periodic_timer(0.05, function()
         start_listener:kill()
         return
     end
-    mp.commandv("script_message-to", "listener", "listener-start", opts.socket, mp.get_script_name())
+    mp.commandv("script_message-to", "music_client", "music-client-start", opts.socket, mp.get_script_name())
 end)
 
 collectgarbage()
