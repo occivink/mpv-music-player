@@ -30,13 +30,17 @@ local g_lyrics_dir = mp.command_native({"expand-path", opts.lyrics_dir})
 local g_albums_file = mp.command_native({"expand-path", opts.albums_file})
 
 do
+    local bad = false
     for _, p in ipairs({g_root_dir, g_thumbs_dir, g_waveforms_dir, g_lyrics_dir}) do
         local fi = utils.file_info(p)
         if not fi or not fi.is_dir then
             msg.error(string.format("Directory '%s' does not exist", p))
-            mp.commandv('quit')
-            return
+            bad = true
         end
+    end
+    if bad then
+        mp.commandv('quit')
+        return
     end
 end
 
@@ -52,10 +56,7 @@ end
 local function send_to_server(array)
     client:send(string.format("%s\n", utils.format_json({ command = array })))
     local rep, err = client:receive()
-    if err then
-        print(err)
-        return
-    end
+    if err then print(err) end
 end
 send_to_server({"disable_event", "all"})
 
