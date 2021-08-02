@@ -1,0 +1,10 @@
+[Unit]
+Description=Music Player Server
+
+[Service]
+ExecStart=/usr/bin/mpv --config-dir=%h/.config/mmp --profile=server
+Type=simple
+Restart=always
+
+[Install]
+WantedBy=default.target
