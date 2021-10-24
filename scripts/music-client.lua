@@ -1,6 +1,25 @@
-local client = require 'socket.unix'()
+local options = require 'mp.options'
+
+-- options are shared between client and server, so that the socket is only defined in one place
+local opts = {
+    mode = '',
+    socket = "mmp_socket",
+    root_dir = '',
+    thumbs_dir = '',
+    waveforms_dir = '',
+    lyrics_dir = '',
+    albums_file =  '',
+    default_layout = '',
+}
+options.read_options(opts, "music-player")
+
+if opts.mode ~= "client" then return end
+
+local socket = require 'socket.unix'
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
+
+local client = socket()
 
 mp.register_script_message("music-client-start", function(server_address, client_script)
     mp.unregister_script_message("music-client-start")

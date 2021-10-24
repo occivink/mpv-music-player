@@ -1,11 +1,21 @@
-local utils = require 'mp.utils'
 local options = require 'mp.options'
 
 -- options are shared between client and server, so that the socket is only defined in one place
 local opts = {
+    mode = '',
     socket = "mmp_socket",
+    root_dir = '',
+    thumbs_dir = '',
+    waveforms_dir = '',
+    lyrics_dir = '',
+    albums_file =  '',
+    default_layout = '',
 }
 options.read_options(opts, "music-player")
+
+if opts.mode ~= "server" then return end
+
+local utils = require 'mp.utils'
 
 mp.set_property("input-ipc-server", opts.socket)
 

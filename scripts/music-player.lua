@@ -1,18 +1,7 @@
-local socket = require 'socket.unix'
-local utils = require 'mp.utils'
-local assdraw = require 'mp.assdraw'
 local options = require 'mp.options'
-local msg = require 'mp.msg'
-
-local lib = mp.find_config_file('scripts/lib.disable')
-if not lib then
-    return
-end
--- lib can be nil if the folder does not exist or we're in --no-config mode
-package.path = package.path .. ';' .. lib .. '/?.lua;'
-require 'gallery'
 
 local opts = {
+    mode = '',
     socket = "mmp_socket",
     root_dir = "music",
     thumbs_dir = "thumbs",
@@ -22,6 +11,21 @@ local opts = {
     default_layout = "BROWSE",
 }
 options.read_options(opts, "music-player")
+
+if opts.mode ~= "client" then return end
+
+local socket = require 'socket.unix'
+local utils = require 'mp.utils'
+local assdraw = require 'mp.assdraw'
+local msg = require 'mp.msg'
+
+local lib = mp.find_config_file('scripts/lib.disable')
+if not lib then
+    return
+end
+-- lib can be nil if the folder does not exist or we're in --no-config mode
+package.path = package.path .. ';' .. lib .. '/?.lua;'
+require 'gallery'
 
 local g_root_dir = mp.command_native({"expand-path", opts.root_dir})
 local g_thumbs_dir = mp.command_native({"expand-path", opts.thumbs_dir})
