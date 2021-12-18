@@ -1477,30 +1477,41 @@ do
         redraw_lyrics()
     end
 
-    local function fetch_lyrics()
-        offset = 0
-        lyrics = {}
+    local function current_lyrics_filepath()
         local chapters = properties["chapter-list"]
         local chap = properties["chapter"]
         local duration = properties["duration"]
         local _, album = album_from_path(properties["path"])
         if #chapters == 0 or not chap or not duration or not album then
-            redraw_lyrics()
-            return
+            return nil
         end
         chap = math.max(chap + 1, 1)
-        track_start = chapters[chap].time
+        local ts = chapters[chap].time
+        local tl
         if chap == #chapters then
-            track_length = duration - chapters[chap].time
+            tl = duration - chapters[chap].time
         else
-            track_length = chapters[chap + 1].time - chapters[chap].time
+            tl = chapters[chap + 1].time - chapters[chap].time
         end
         local title = string.match(chapters[chap].title, ".*/(%d+ .*)%..-")
-        local path = string.format("%s/%s - %s/%s.lyr",
+        local lyrics_path = string.format("%s/%s - %s/%s.lyr",
             g_lyrics_dir,
             album.artist,
             album.album,
             title)
+        return lyrics_path, ts, tl
+    end
+
+    local function fetch_lyrics()
+        offset = 0
+        lyrics = {}
+        local path, ts, tl = current_lyrics_filepath()
+        if not path then
+            redraw_lyrics()
+            return
+        end
+        track_start = ts
+        track_length = tl
         local f = io.open(path, "r")
         if not f then
             msg.warn("Cannot open lyrics file " .. path)
@@ -1528,8 +1539,15 @@ do
         redraw_lyrics()
     end
 
+    local open_editor = function()
+        local lyrics_path, _, _ = current_lyrics_filepath()
+        mp.command_native({ name = "subprocess", playback_only = false, detach = true, args = {"foot", "--", "kak", "--", lyrics_path }})
+    end
+
     local bindings = {
         {"a", function() autoscrolling = true autoscroll() end, {}},
+        {"e", function() open_editor() end, {}},
+        {"r", function() fetch_lyrics() end, {}},
         {"UP", function() scroll(-25) end, {repeatable=true}},
         {"DOWN", function() scroll(25) end, {repeatable=true}},
         {"WHEEL_UP", function() scroll(-15) end, {repeatable=true}},
@@ -1541,7 +1559,6 @@ do
         ass_text.background = get_background(position, size, focus)
         if active then
             fetch_lyrics()
-            autoscrolling = true
         else
             clear_lyrics()
         end
