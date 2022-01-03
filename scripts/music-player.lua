@@ -1544,6 +1544,16 @@ do
         mp.command_native({ name = "subprocess", playback_only = false, detach = true, args = {"foot", "--", "kak", "--", lyrics_path }})
     end
 
+    local set_coarse_time_pos = function()
+        local value = properties["time-pos"]
+        value = value - (value % 0.2)
+        if value == time_pos_coarse then return end
+        time_pos_coarse = value
+        if autoscrolling then
+           autoscroll()
+        end
+    end
+
     local bindings = {
         {"a", function() autoscrolling = true autoscroll() end, {}},
         {"e", function() open_editor() end, {}},
@@ -1558,6 +1568,7 @@ do
         active = active_now
         ass_text.background = get_background(position, size, focus)
         if active then
+            set_coarse_time_pos()
             fetch_lyrics()
         else
             clear_lyrics()
@@ -1598,14 +1609,7 @@ do
     this.prop_changed = {
         ["path"] = function(path) if path == '' then clear_lyrics() end end,
         ["chapter"] = function() fetch_lyrics() end,
-        ["time-pos"] = function(value)
-                           value = value - (value % 0.2)
-                           if value == time_pos_coarse then return end
-                           time_pos_coarse = value
-                           if autoscrolling then
-                               autoscroll()
-                           end
-                       end,
+        ["time-pos"] = function(value) set_coarse_time_pos() end,
     }
     this.mouse_move = function(mx, my) end
 
