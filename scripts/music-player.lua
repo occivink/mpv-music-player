@@ -754,60 +754,11 @@ do
     local waveform_size = {0,0}
     local cover_position = {0,0}
     local cover_size = {0,0}
-    local text_position = {0,0}
+    local track_text_position = {0,0}
+    local album_text_position = {0,0}
     local times_position = {0, 0}
 
     local time_pos_coarse = -1
-
-    local ass_text = {
-        background = '',
-        elapsed = '',
-        times = '',
-        chapters = '',
-        text = '',
-    }
-    local active = false
-    local focus = false
-
-    local function redraw_chapters()
-        local duration = properties["duration"]
-        local chapters = properties["chapter-list"]
-        if not duration or #chapters == 0 then
-            ass_text.chapters = ''
-            ass_changed = true
-            return
-        end
-        local a = assdraw.ass_new()
-        a:new_event()
-        a:pos(0, 0)
-        a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
-        a:draw_start()
-        local w = chapters_marker_width/2
-        local y1 = waveform_position[2]
-        local y2 = y1 + waveform_size[2]
-        for _, chap in ipairs(chapters) do
-            local x = waveform_position[1] + waveform_size[1] * (chap.time / duration)
-            a:rect_cw(x - w, y1, x + w, y2)
-        end
-        local x = waveform_position[1] + waveform_size[1]
-        a:rect_cw(x - w, y1, x + w, y2)
-        a:new_event()
-        a:pos(text_position[1], text_position[2] + (title_text_size + artist_album_text_size) / 2 - 5)
-        a:append('{\\bord0\\an4}')
-
-        local chap = math.max(0, properties["chapter"] or 0) + 1
-        local chapter = chapters[chap]
-        local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
-        local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
-        local text = string.format("{\\fs%d}%s {\\1c&%s&}[%d/%d] [%s]", title_text_size, title, darker_text_color, chap, #chapters, mp.format_time(track_duration, "%m:%S"))
-        local _, album = album_from_path(properties["path"])
-        if album then
-            text = text .. "\\N" .. string.format("{\\fs%d}{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", artist_album_text_size, album.artist, album.album, darker_text_color, album.year)
-            a:append(text)
-        end
-        ass_text.chapters = a.text
-        ass_changed = true
-    end
 
     -- related to holding left mouse button on the seekbar
     local left_mouse_button_held = false
@@ -815,6 +766,116 @@ do
     local volume_before_scrub = nil
     local ignore_volume_change_once = false
     local scrubbing_volume_ratio = 0.5
+
+    local ass_text = {
+        background = '',
+        elapsed = '',
+        times = '',
+        chapters = '',
+        track = '',
+        album = '',
+    }
+    local active = false
+    local focus = false
+
+    local function redraw_chapters()
+        ass_changed = true
+        local a = assdraw.ass_new()
+
+        local duration = properties["duration"]
+        local chapters = properties["chapter-list"]
+        if duration and chapters and #chapters > 0 then
+            a:new_event()
+            a:pos(0, 0)
+            a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
+            a:draw_start()
+            local w = chapters_marker_width/2
+            local y1 = waveform_position[2]
+            local y2 = y1 + waveform_size[2]
+            for _, chap in ipairs(chapters) do
+                local x = waveform_position[1] + waveform_size[1] * (chap.time / duration)
+                a:rect_cw(x - w, y1, x + w, y2)
+            end
+            local x = waveform_position[1] + waveform_size[1]
+            a:rect_cw(x - w, y1, x + w, y2)
+        end
+        ass_text.chapters = a.text
+    end
+
+    -- return relevant chapter index (1-based) or nil, as well as (potentially) snapped position
+    local function get_chapter_with_snap(x_pos, y_pos, chapters, duration)
+        local nx = x_pos - waveform_position[1]
+        local ny = y_pos - waveform_position[2]
+        if nx < 0 or nx > waveform_size[1] or ny < 0 or ny > waveform_size[2] then
+            return nil
+        end
+        local get_chap_x = function(chap_index)
+            return waveform_position[1] + chapters[chap_index].time / duration * waveform_size[1]
+        end
+        local chap_after
+        for i = 1, #chapters do
+            if get_chap_x(i) > x_pos then
+                chap_after = i
+                break
+            end
+        end
+        local dist_next = chap_after and get_chap_x(chap_after) - x_pos or 1e30
+        local chap_before = chap_after and chap_after - 1 or #chapters
+        local dist_prev = x_pos - get_chap_x(chap_before)
+        if dist_prev <= dist_next and dist_prev < seekbar_snap_distance then
+            return chap_before, get_chap_x(chap_before)
+        elseif dist_next < seekbar_snap_distance then
+            return chap_after, get_chap_x(chap_after)
+        else
+            -- no snapping, previous chapter counts
+            return chap_before, x_pos
+        end
+    end
+
+    local function redraw_track_text()
+        ass_changed = true
+        local a = assdraw.ass_new()
+
+        local chapters = properties["chapter-list"]
+        local duration = properties["duration"]
+        if duration and chapters and #chapters > 0 then
+            local mx, my = mp.get_mouse_pos()
+            local chap
+            if not scrubbing then
+                chap, _ = get_chapter_with_snap(mx, my, chapters, duration)
+            end
+            if not chap then
+                chap = math.max(0, properties["chapter"] or 0) + 1 -- mpv prop is 1-based
+            end
+            if chap then
+                a:new_event()
+                a:pos(track_text_position[1], track_text_position[2])
+                a:append('{\\bord0\\shad0\\an7\\fs' .. title_text_size .. '}')
+
+                local chapter = chapters[chap]
+                local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
+                local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
+                local text = string.format("%s {\\1c&%s&}[%d/%d] [%s]", title, darker_text_color, chap, #chapters, mp.format_time(track_duration, "%m:%S"))
+                a:append(text)
+            end
+        end
+        ass_text.track = a.text
+    end
+
+    local function redraw_album_text()
+        ass_changed = true
+        local a = assdraw.ass_new()
+
+        local _, album = album_from_path(properties["path"])
+        if album then
+            a:new_event()
+            a:pos(album_text_position[1], album_text_position[2])
+            a:append('{\\bord0\\shad0\\an7\\fs' .. artist_album_text_size .. '}')
+            local text = string.format("{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", album.artist, album.album, darker_text_color, album.year)
+            a:append(text)
+        end
+        ass_text.album = a.text
+    end
 
     local function redraw_times()
         local duration = properties["duration"]
@@ -857,21 +918,10 @@ do
         local end_x = waveform_position[1] + waveform_size[1]
         local current_x = nil
 
-        do
+        if not scrubbing then
             local mx, my = mp.get_mouse_pos()
-            local tx = mx - waveform_position[1]
-            local ty = my - waveform_position[2]
-            if tx >= 0 and tx <= waveform_size[1] and ty >= 0 and ty <= waveform_size[2] then
-                cursor_x = mx
-                if not scrubbing then
-                    for _, chap in ipairs(properties["chapter-list"]) do
-                        local chap_x = waveform_position[1] + chap.time / duration * waveform_size[1]
-                        if math.abs(chap_x - cursor_x) < seekbar_snap_distance then
-                            cursor_x = chap_x
-                        end
-                    end
-                end
-            end
+            local _, snapped_x  = get_chapter_with_snap(mx, my, properties["chapter-list"], duration)
+            cursor_x = snapped_x or cursor_x
         end
         if time_pos_coarse and duration then
             current_x = waveform_position[1] + waveform_size[1] * (time_pos_coarse / duration)
@@ -1024,10 +1074,15 @@ do
         active = newactive
         set_overlay()
         set_waveform()
-        redraw_elapsed()
-        redraw_times()
-        redraw_chapters()
-        ass_text.background = get_background(position, size, focus)
+        if active then
+            time_pos_coarse = math.floor(properties["time-pos"])
+            redraw_elapsed()
+            redraw_times()
+            redraw_chapters()
+            redraw_album_text()
+            redraw_track_text()
+            ass_text.background = get_background(position, size, focus)
+        end
         ass_changed = true
     end
     this.set_focus = function(newfocus)
@@ -1045,22 +1100,37 @@ do
         size = { w, h }
         cover_size = { 150, 150 }
 
-        local dist_w = 10
-        cover_position = { x + dist_w, y + (h - cover_size[2]) / 2 }
+        local spacing_h = 10
+        x = x + spacing_h
+        w = w - 2 * spacing_h
+        cover_position = { x, y + (h - cover_size[2]) / 2 }
+        x = x + cover_size[1] + spacing_h
+        w = w - (cover_size[2] + spacing_h)
 
-        local dist_h = 10
-        text_position = { x + cover_size[1] + 2 * dist_w, y + dist_h}
+        local padding_v = 5
+        y = y + padding_v
+        h = h - 2 * padding_v
+        track_text_position = { x, y }
+        y = y + title_text_size
+        h = h - title_text_size
+        album_text_position = { x, y }
+        y = y + artist_album_text_size
+        h = h - artist_album_text_size
+        y = y + 3 -- small space between waveform and album text
+        h = h - 3
+        times_position = { x, y + h - time_text_size}
+        h = h - time_text_size
+        waveform_position = { x, y }
+        waveform_size = { w, h }
 
-        waveform_position = { text_position[1], text_position[2] + artist_album_text_size + title_text_size }
-        waveform_size = { w - cover_size[1] - 3 * dist_w, h - 2 * dist_h - (artist_album_text_size + title_text_size + time_text_size) }
-        times_position = { text_position[1], waveform_position[2] + waveform_size[2] }
-
-        set_video_position(waveform_position[1], waveform_position[2] - 0.5 * waveform_padding_proportion * waveform_size[2] / (1 - waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - waveform_padding_proportion))
         if active then
+            set_video_position(waveform_position[1], waveform_position[2] - 0.5 * waveform_padding_proportion * waveform_size[2] / (1 - waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - waveform_padding_proportion))
             set_overlay()
             redraw_elapsed()
             redraw_times()
             redraw_chapters()
+            redraw_album_text()
+            redraw_track_text()
             ass_text.background = get_background(position, size, focus)
             ass_changed = true
         end
@@ -1077,8 +1147,9 @@ do
             ass_text.background,
             ass_text.times,
             ass_text.chapters,
-            ass_text.text,
             ass_text.elapsed,
+            ass_text.track,
+            ass_text.album,
         }, "\n") or ''
     end
 
@@ -1088,12 +1159,16 @@ do
             scrub_stop()
             set_waveform()
             set_overlay()
+            redraw_album_text()
+        end,
+        ["chapter-list"] = function()
             redraw_chapters()
-            redraw_elapsed()
+            redraw_track_text()
             redraw_times()
         end,
-        ["chapter-list"] = function() redraw_chapters() end,
-        ["chapter"] = function() redraw_chapters() end,
+        ["chapter"] = function()
+            redraw_track_text()
+        end,
         ["time-pos"] = function(value)
                            -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
                            value = math.floor(value)
@@ -1102,7 +1177,12 @@ do
                            redraw_elapsed()
                            redraw_times()
                        end,
-        ["duration"] = function() redraw_chapters() redraw_elapsed() end,
+        ["duration"] = function()
+            redraw_chapters()
+            redraw_elapsed()
+            redraw_times()
+            redraw_track_text()
+        end,
         ["volume"] = function(val)
                          -- timing dependent, but probably ok
                          if not ignore_volume_change_once then volume_before_scrub = nil end
@@ -1130,6 +1210,7 @@ do
             redraw_times()
             cursor_visible = false
         end
+        redraw_track_text()
     end
 
     this.idle = function() end
