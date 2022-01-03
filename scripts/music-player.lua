@@ -134,6 +134,11 @@ local function album_from_path(path)
     return nil
 end
 
+local function file_exists(path)
+    local info = utils.file_info(path)
+    return info ~= nil and info.is_file
+end
+
 local function get_background(position, size, focused)
     local a = assdraw.ass_new()
     a:new_event()
@@ -977,33 +982,41 @@ do
 
     local function set_waveform()
         local _, album = album_from_path(properties["path"])
-        if not active or not album then
-            mp.commandv("playlist-remove", "current")
-            return
+        if active and album then
+            local filepath = string.format("%s/%d - %s.png",
+                g_waveforms_dir, album.year, string.gsub(album.album, ':', '\\:'))
+            if file_exists(filepath) then
+                mp.commandv("loadfile", filepath, "replace")
+                return
+            else
+                msg.warn("Cannot find waveform")
+            end
         end
-        local wavefile = string.format("%s/%d - %s.png", g_waveforms_dir, album.year, string.gsub(album.album, ':', '\\:'))
-        mp.commandv("loadfile", wavefile, "replace")
+        mp.commandv("playlist-remove", "current")
     end
 
     local function set_overlay()
         local _, album = album_from_path(properties["path"])
-        if not active or not album then
-            mp.commandv("overlay-remove", seekbar_overlay_index)
-            return
+        if active and album then
+            local filepath = string.format("%s/%s - %s_%s_%s",
+                g_thumbs_dir, album.artist, album.album, cover_size[1], cover_size[2])
+            if file_exists(filepath) then
+                mp.commandv("overlay-add",
+                    seekbar_overlay_index,
+                    tostring(math.floor(cover_position[1] + 0.5)),
+                    tostring(math.floor(cover_position[2] + 0.5)),
+                    filepath,
+                    "0",
+                    "bgra",
+                    tostring(cover_size[1]),
+                    tostring(cover_size[2]),
+                    tostring(4*cover_size[1]))
+                return
+            else
+                msg.warn("Cannot find album cover")
+            end
         end
-        mp.commandv("overlay-add",
-            seekbar_overlay_index,
-            tostring(math.floor(cover_position[1] + 0.5)),
-            tostring(math.floor(cover_position[2] + 0.5)),
-            string.format("%s/%s - %s_%s_%s", g_thumbs_dir,
-                album.artist, album.album,
-                cover_size[1],
-                cover_size[2]),
-            "0",
-            "bgra",
-            tostring(cover_size[1]),
-            tostring(cover_size[2]),
-            tostring(4*cover_size[1]))
+        mp.commandv("overlay-remove", seekbar_overlay_index)
     end
 
     local function skip_current_maybe()
@@ -1595,7 +1608,7 @@ do
         track_length = tl
         local f = io.open(path, "r")
         if not f then
-            msg.warn("Cannot open lyrics file " .. path)
+            msg.warn("Cannot find lyrics file")
             return
         end
         lyrics[1] = ''
