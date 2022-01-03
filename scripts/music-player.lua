@@ -779,6 +779,7 @@ do
         chapters = '',
         track = '',
         album = '',
+        cover_bg = '',
     }
     local active = false
     local focus = false
@@ -865,6 +866,25 @@ do
             end
         end
         ass_text.track = a.text
+    end
+
+    local function redraw_cover_bg()
+        ass_changed = true
+        local a = assdraw.ass_new()
+
+        if properties["path"] ~= nil then
+            a:new_event()
+            a:pos(0, 0)
+            a:append('{\\bord0\\shad0\\1c&' .. 'BBBBBB' .. '}')
+            a:draw_start()
+            local border = 1
+            local x = cover_position[1] - border
+            local y = cover_position[2] - border
+            local w = cover_size[1] + 2 * border
+            local h = cover_size[2] + 2 * border
+            a:rect_cw(x, y, x + w, y + h)
+        end
+        ass_text.cover_bg = a.text
     end
 
     local function redraw_album_text()
@@ -1094,6 +1114,7 @@ do
             redraw_chapters()
             redraw_album_text()
             redraw_track_text()
+            redraw_cover_bg()
             ass_text.background = get_background(position, size, focus)
         end
         ass_changed = true
@@ -1144,6 +1165,7 @@ do
             redraw_chapters()
             redraw_album_text()
             redraw_track_text()
+            redraw_cover_bg()
             ass_text.background = get_background(position, size, focus)
             ass_changed = true
         end
@@ -1163,6 +1185,7 @@ do
             ass_text.elapsed,
             ass_text.track,
             ass_text.album,
+            ass_text.cover_bg,
         }, "\n") or ''
     end
 
@@ -1173,6 +1196,7 @@ do
             set_waveform()
             set_overlay()
             redraw_album_text()
+            redraw_cover_bg()
         end,
         ["chapter-list"] = function()
             redraw_chapters()
