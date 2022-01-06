@@ -891,7 +891,8 @@ do
         ass_changed = true
         local a = assdraw.ass_new()
 
-        if properties["path"] ~= nil then
+        local path = properties["path"]
+        if path and path ~= '' then
             a:new_event()
             a:pos(0, 0)
             a:append('{\\bord0\\shad0\\1c&' .. 'BBBBBB' .. '}')
@@ -915,7 +916,8 @@ do
             a:new_event()
             a:pos(album_text_position[1], album_text_position[2])
             a:append('{\\bord0\\shad0\\an7\\fs' .. player_opts.artist_album_text_size .. '}')
-            local text = string.format("{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", album.artist, album.album, player_opts.darker_text_color, album.year)
+            local text = string.format("{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]",
+                album.artist, album.album, player_opts.darker_text_color, album.year)
             a:append(text)
         end
         ass_text.album = a.text
