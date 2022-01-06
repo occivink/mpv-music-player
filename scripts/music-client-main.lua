@@ -819,9 +819,9 @@ do
     end
 
     -- return relevant chapter index (1-based) or nil, as well as (potentially) snapped position
-    local function get_chapter_with_snap(x_pos, y_pos, chapters, duration)
-        local nx = x_pos - waveform_position[1]
-        local ny = y_pos - waveform_position[2]
+    local function get_chapter_with_snap(pos, chapters, duration)
+        local nx = pos[1] - waveform_position[1]
+        local ny = pos[2] - waveform_position[2]
         if nx < 0 or nx > waveform_size[1] or ny < 0 or ny > waveform_size[2] then
             return nil
         end
@@ -830,21 +830,21 @@ do
         end
         local chap_after
         for i = 1, #chapters do
-            if get_chap_x(i) > x_pos then
+            if get_chap_x(i) > pos[1] then
                 chap_after = i
                 break
             end
         end
-        local dist_next = chap_after and get_chap_x(chap_after) - x_pos or 1e30
+        local dist_next = chap_after and get_chap_x(chap_after) - pos[1] or 1e30
         local chap_before = chap_after and chap_after - 1 or #chapters
-        local dist_prev = x_pos - get_chap_x(chap_before)
+        local dist_prev = pos[1] - get_chap_x(chap_before)
         if dist_prev <= dist_next and dist_prev < player_opts.seekbar_snap_distance then
-            return chap_before, get_chap_x(chap_before)
+            return chap_before, chapters[chap_before].time / duration
         elseif dist_next < player_opts.seekbar_snap_distance then
-            return chap_after, get_chap_x(chap_after)
+            return chap_after, chapters[chap_after].time / duration
         else
             -- no snapping, previous chapter counts
-            return chap_before, x_pos
+            return chap_before, (pos[1] - waveform_position[1]) / waveform_size[1]
         end
     end
 
@@ -858,11 +858,10 @@ do
             local chap
             local time_pos
             if not scrubbing then
-                local x_pos
-                local mx, my = mp.get_mouse_pos()
-                chap, x_pos = get_chapter_with_snap(mx, my, chapters, duration)
+                local norm_x
+                chap, norm_x = get_chapter_with_snap({mp.get_mouse_pos()}, chapters, duration)
                 if chap then
-                    time_pos = (x_pos - waveform_position[1]) / waveform_size[1] * duration
+                    time_pos = norm_x * duration
                 end
             end
             if not chap then
@@ -964,9 +963,8 @@ do
         local current_x = nil
 
         if not scrubbing then
-            local mx, my = mp.get_mouse_pos()
-            local _, snapped_x  = get_chapter_with_snap(mx, my, properties["chapter-list"], duration)
-            cursor_x = snapped_x or cursor_x
+            local _, norm_x  = get_chapter_with_snap({mp.get_mouse_pos()}, properties["chapter-list"], duration)
+            cursor_x = norm_x and (norm_x * waveform_size[1] + waveform_position[1]) or cursor_x
         end
         if time_pos_coarse and duration then
             current_x = waveform_position[1] + waveform_size[1] * (time_pos_coarse / duration)
@@ -1069,23 +1067,10 @@ do
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
         if not duration or not chapters then return false end
-        local x, y = normalized_coordinates({mp.get_mouse_pos()}, waveform_position, waveform_size)
-        if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
-            local snap_chap = nil
-            local min_dist = nil
-            for _, chap in ipairs(chapters) do
-                local dist = math.abs(x - chap.time / duration)
-                if dist * waveform_size[1] < player_opts.seekbar_snap_distance then
-                    if not snap_chap or dist < min_dist then
-                        snap_chap = chap.time
-                        min_dist = dist
-                    end
-                end
-            end
-            send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
-            return true
-        end
-        return false
+        local chap, norm_x = get_chapter_with_snap({mp.get_mouse_pos()}, chapters, duration)
+        if not chap then return false end
+        send_to_server({"set_property", "time-pos",  tostring(norm_x * duration)})
+        return true
     end
 
     local function scrub_start()
