@@ -9,13 +9,13 @@ options.read_options(core_opts, "music-player")
 if core_opts.mode ~= "client" then return end
 
 local player_opts = {
-    root_dir = "music",
-    thumbs_dir = "thumbs",
-    waveforms_dir = "waveforms",
+    root_dir = 'music',
+    thumbs_dir = 'thumbs',
+    waveforms_dir = 'waveforms',
     lyrics_dir = "lyrics",
     albums_file = '', -- for optimization purposes
 
-    default_layout = "BROWSE",
+    default_layout = 'BROWSE',
 
     component_spacing = 10,
 
@@ -26,17 +26,28 @@ local player_opts = {
     background_border_color = '000000',
     background_roundness = 2,
 
+    library_filter_focus_color = 'CB9A79',
+
     chapters_marker_width = 3,
-    chapters_marker_color = "888888",
-    cursor_bar_width = 3,
+    chapters_marker_color = '888888',
+    cursor_bar_width = 4,
+    cursor_bar_color = 'CB9A79',
     seekbar_snap_distance = 15,
-    cursor_bar_color = "BBBBBB",
-    waveform_padding_proportion = 2/3,
+    waveform_padding_proportion = 0.6666,
     title_text_size = 32,
     artist_album_text_size = 24,
     time_text_size = 24,
-    darker_text_color = "999999",
+    darker_text_color = '999999',
+
+    controls_default_color = '909090',
+    controls_play_active_color = 'CB9A79',
+    controls_pause_active_color = '7DBEEF',
+    controls_output_active_color = '6EB884',
+    controls_mute_active_color = '5E66F9',
+    controls_volume_inactive_color = '555555',
+    controls_hover_tint_factor = 0.15,
 }
+
 options.read_options(player_opts, "music-player-client")
 
 local socket = require 'socket.unix'
@@ -87,12 +98,6 @@ local function send_to_server(array)
 end
 
 send_to_server({"disable_event", "all"})
-
-local red = '5E66F9'
-local blue = 'CB9F79'
-local yellow = '7DBEEF'
-local white = '999999'
-local gray = '555555'
 
 -- VARS
 local ass_changed = false
@@ -517,7 +522,8 @@ do
 
         local a = assdraw.ass_new()
         a:new_event()
-        a:append(string.format('{\\bord4\\shad0\\1a&%s&\\3c&%s&}', 'ff', focus_filter and blue or '222222'))
+        a:append(string.format('{\\bord4\\shad0\\1a&%s&\\3c&%s&}',
+            'ff', focus_filter and player_opts.library_filter_focus_color or '222222'))
         a:pos(0, 0)
         a:draw_start()
         a:rect_cw(filter_position[1], filter_position[2], filter_position[1] + filter_size[1], filter_position[2] + filter_size[2])
@@ -1007,9 +1013,9 @@ do
         a:rect_cw(x1, y1, x2, y2)
         a:new_event()
         a:pos(0,0)
-        a:append(string.format('{\\r\\bord0\\shad0\\1c&%s\\1a&%s}', blue, "00"))
+        a:append(string.format('{\\r\\bord0\\shad0\\1c&%s\\1a&%s}', player_opts.cursor_bar_color, "00"))
         a:draw_start()
-        a:rect_cw(x2 - 1.5, y1, x2 + 2, y2)
+        a:rect_cw(x2 - player_opts.cursor_bar_width / 2, y1, x2 + player_opts.cursor_bar_width / 2, y2)
         ass_text.elapsed = a.text
         ass_changed = true
     end
@@ -1350,19 +1356,27 @@ do
         local is_headphones = properties["audio-client-name"] == 'mmp-headphones'
         local current_volume = properties["volume"] / 100
 
-        draw_button(backwards, -border, white, hovered_button == backwards and 0.15)
-        draw_button(forwards, -border, white, hovered_button == forwards and 0.15)
-        draw_button(play, -border, is_play and blue or white, hovered_button == play and 0.15)
-        draw_button(pause, -border, is_pause and yellow or white, hovered_button == pause and 0.15)
+        local def = player_opts.controls_default_color
+        local tf = player_opts.controls_hover_tint_factor
+        draw_button(backwards, -border, def, hovered_button == backwards and tf)
+        draw_button(forwards, -border, def, hovered_button == forwards and tf)
+        draw_button(play, -border, is_play and player_opts.controls_play_active_color or def,
+            hovered_button == play and tf)
+        draw_button(pause, -border, is_pause and player_opts.controls_pause_active_color or def,
+            hovered_button == pause and tf)
 
-        draw_button(speakers, -border, is_speakers and white or gray, hovered_button == speakers and 0.15)
-        draw_button(headphones, -border, is_headphones and white or gray, hovered_button == headphones and 0.15)
+        draw_button(speakers, -border, is_speakers and player_opts.controls_output_active_color or def,
+            hovered_button == speakers and tf)
+        draw_button(headphones, -border, is_headphones and player_opts.controls_output_active_color or def,
+            hovered_button == headphones and tf)
 
-        draw_button(mute, -border, is_mute and red or white, hovered_button == mute and 0.15)
+        draw_button(mute, -border, is_mute and player_opts.controls_mute_active_color or def,
+            hovered_button == mute and tf)
 
         local v = volume
-        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, white, hovered_button == volume and 0.15)
-        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border, gray, hovered_button == volume and 0.15)
+        draw_button({v[1], v[2], current_volume * v[3], v[4]}, -border, def, hovered_button == volume and tf)
+        draw_button({v[1] + current_volume * v[3], v[2], (1 - current_volume) * v[3], v[4]}, -border,
+            player_opts.controls_volume_inactive_color, hovered_button == volume and tf)
 
         local draw_icon = function(b, percent_margin, icon)
             a:new_event()
