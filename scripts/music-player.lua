@@ -19,6 +19,8 @@ local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
 
+local pid = tostring(utils.getpid())
+
 local lib = mp.find_config_file('scripts/lib.disable')
 if not lib then
     return
@@ -48,13 +50,11 @@ do
     end
 end
 
-local client = nil
-while true do
-    client = socket()
-    local res, err = client:connect(opts.socket)
-    if res == 1 then break end
-    msg.warn("Could not connect to server, waiting...")
-    mp.command_native({ name = "subprocess", playback_only = false, args = {"sleep", "1"}})
+local client = socket()
+if not client:connect(opts.socket) then
+    msg.error("Cannot connect, aborting")
+    mp.commandv("quit")
+    return
 end
 
 local function send_to_server(array)
@@ -62,6 +62,7 @@ local function send_to_server(array)
     local rep, err = client:receive()
     if err then print(err) end
 end
+
 send_to_server({"disable_event", "all"})
 
 local red = '5E66F9'
@@ -1978,15 +1979,10 @@ end)
 
 mp.commandv("enable-section", "music-player")
 
-local start_time = mp.get_time()
-local start_listener
-start_listener = mp.add_periodic_timer(0.05, function()
-    local time = mp.get_time()
-    if time - start_time > 3 then
-        start_listener:kill()
-        return
-    end
-    mp.commandv("script_message-to", "music_client", "music-client-start", opts.socket, mp.get_script_name())
+mp.register_event("shutdown", function()
+    send_to_server({"script-message", "stop", pid})
+    client:close()
 end)
+send_to_server({"script-message", "start", pid, mp.get_script_name()})
 
 collectgarbage()
