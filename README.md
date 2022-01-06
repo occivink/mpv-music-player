@@ -1,6 +1,6 @@
 Graphical music player based on mpv
 
-TODO screenshot(s?) here
+![mmp-screenshot](mmp-screenshot.jpg)
 
 # Features
 
@@ -15,7 +15,7 @@ TODO screenshot(s?) here
 - Modular (if you write code for it :^)) graphical client
 - Optionally control the server with simple shell commands
 - Can be fully operated with mouse and/or keyboard
-- Only requires mpv to be installed
+- Only requires mpv to be installed (which you already have, right?)
 
 # FAQ
 
