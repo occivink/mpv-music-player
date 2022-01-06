@@ -1216,7 +1216,7 @@ do
         end,
         ["time-pos"] = function(value)
                            -- since time-pos is changed ~15/second during normal playback, we throttle redraws to 1/s
-                           value = math.floor(value)
+                           value = math.max(0, math.floor(value))
                            if value == time_pos_coarse then return end
                            time_pos_coarse = value
                            redraw_elapsed()
@@ -1671,7 +1671,7 @@ do
     end
 
     local set_coarse_time_pos = function()
-        local value = properties["time-pos"]
+        local value = math.max(0, properties["time-pos"])
         value = value - (value % 0.2)
         if value == time_pos_coarse then return end
         time_pos_coarse = value
