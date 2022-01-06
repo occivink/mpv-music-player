@@ -875,7 +875,7 @@ do
 
                 local chapter = chapters[chap]
                 local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
-                local track_pos = time_pos - chapter.time
+                local track_pos = math.floor(time_pos - chapter.time)
                 local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
                 local text = string.format("%s {\\1c&%s&}[%d/%d] [%s%s]",
                     title, player_opts.darker_text_color, chap, #chapters,
