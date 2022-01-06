@@ -1,8 +1,14 @@
 local options = require 'mp.options'
 
-local opts = {
+local core_opts = {
     mode = '',
     socket = "mmp_socket",
+}
+options.read_options(core_opts, "music-player")
+
+if core_opts.mode ~= "client" then return end
+
+local player_opts = {
     root_dir = "music",
     thumbs_dir = "thumbs",
     waveforms_dir = "waveforms",
@@ -10,16 +16,12 @@ local opts = {
     albums_file = '', -- for optimization purposes
     default_layout = "BROWSE",
 }
-options.read_options(opts, "music-player")
-
-if opts.mode ~= "client" then return end
+options.read_options(player_opts, "music-player-client")
 
 local socket = require 'socket.unix'
 local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
-
-local pid = tostring(utils.getpid())
 
 local lib = mp.find_config_file('scripts/lib.disable')
 if not lib then
@@ -29,11 +31,11 @@ end
 package.path = package.path .. ';' .. lib .. '/?.lua;'
 require 'gallery'
 
-local g_root_dir = mp.command_native({"expand-path", opts.root_dir})
-local g_thumbs_dir = mp.command_native({"expand-path", opts.thumbs_dir})
-local g_waveforms_dir = mp.command_native({"expand-path", opts.waveforms_dir})
-local g_lyrics_dir = mp.command_native({"expand-path", opts.lyrics_dir})
-local g_albums_file = mp.command_native({"expand-path", opts.albums_file})
+local g_root_dir = mp.command_native({"expand-path", player_opts.root_dir})
+local g_thumbs_dir = mp.command_native({"expand-path", player_opts.thumbs_dir})
+local g_waveforms_dir = mp.command_native({"expand-path", player_opts.waveforms_dir})
+local g_lyrics_dir = mp.command_native({"expand-path", player_opts.lyrics_dir})
+local g_albums_file = mp.command_native({"expand-path", player_opts.albums_file})
 
 do
     local bad = false
@@ -51,7 +53,7 @@ do
 end
 
 local client = socket()
-if not client:connect(opts.socket) then
+if not client:connect(core_opts.socket) then
     msg.error("Cannot connect, aborting")
     mp.commandv("quit")
     return
@@ -1963,7 +1965,7 @@ mp.register_idle(function()
                 layout_geometry()
             else
                 started = true
-                set_active_layout(opts.default_layout)
+                set_active_layout(player_opts.default_layout)
             end
         end
     end
@@ -1996,6 +1998,8 @@ mp.register_idle(function()
 end)
 
 mp.commandv("enable-section", "music-player")
+
+local pid = tostring(utils.getpid())
 
 mp.register_event("shutdown", function()
     send_to_server({"script-message", "stop", pid})

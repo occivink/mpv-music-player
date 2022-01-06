@@ -4,12 +4,6 @@ local options = require 'mp.options'
 local opts = {
     mode = '',
     socket = "mmp_socket",
-    root_dir = '',
-    thumbs_dir = '',
-    waveforms_dir = '',
-    lyrics_dir = '',
-    albums_file =  '',
-    default_layout = '',
 }
 options.read_options(opts, "music-player")
 
