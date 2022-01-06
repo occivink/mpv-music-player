@@ -101,4 +101,3 @@ This is not a goal, and I will not implment it.
 
 - Equalizer, as stated
 - General styling improvements
-- Can open lyrics file in text editor for corrections
