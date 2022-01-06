@@ -768,6 +768,7 @@ do
 
     -- related to holding left mouse button on the seekbar
     local left_mouse_button_held = false
+    local can_scrub = false -- the seekbar has been clicked, but the cursor not yet moved
     local scrubbing = false
     local volume_before_scrub = nil
     local ignore_volume_change_once = false
@@ -1049,9 +1050,8 @@ do
     local function seek_maybe()
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
-        if not duration or not chapters then return end
-        local mouse_pos = {mp.get_mouse_pos()}
-        local x, y = normalized_coordinates(mouse_pos, waveform_position, waveform_size)
+        if not duration or not chapters then return false end
+        local x, y = normalized_coordinates({mp.get_mouse_pos()}, waveform_position, waveform_size)
         if x >= 0 and y >= 0 and x <= 1 and y <= 1 then
             local snap_chap = nil
             local min_dist = nil
@@ -1065,7 +1065,9 @@ do
                 end
             end
             send_to_server({"set_property", "time-pos", tostring(snap_chap or x * duration)})
+            return true
         end
+        return false
     end
 
     local function scrub_start()
@@ -1079,6 +1081,7 @@ do
     local function scrub_stop()
         if not scrubbing then return end
         scrubbing = false
+        can_scrub = false
         if volume_before_scrub then
             send_to_server({"set_property", "volume", volume_before_scrub})
             volume_before_scrub = nil
@@ -1098,9 +1101,13 @@ do
         {"DEL", function() send_to_server({"playlist-remove", "0"}) end, {}},
         {"MBTN_RIGHT", function() skip_current_maybe() end, {}},
         {"MBTN_LEFT", function(table)
-                          left_mouse_button_held = (table["event"] == "down")
-                          if left_mouse_button_held then seek_maybe() end
-                          scrub_stop()
+                          local down = (table["event"] == "down")
+                          left_mouse_button_held = down
+                          if down then
+                              can_scrub = seek_maybe()
+                          else
+                              scrub_stop()
+                          end
                       end, {complex=true,repeatable=false}},
     }
 
@@ -1230,7 +1237,7 @@ do
 
     local cursor_visible = false
     this.mouse_move = function(mx, my)
-        if left_mouse_button_held then
+        if can_scrub and left_mouse_button_held then
             scrub_start()
         end
         if not properties["path"] then return end
