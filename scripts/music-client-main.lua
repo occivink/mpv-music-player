@@ -14,7 +14,28 @@ local player_opts = {
     waveforms_dir = "waveforms",
     lyrics_dir = "lyrics",
     albums_file = '', -- for optimization purposes
+
     default_layout = "BROWSE",
+
+    component_spacing = 10,
+
+    background_opacity = 'BB',
+    background_color_focus = 'AAAAAA',
+    background_color_idle = '666666',
+    background_border_size = '3',
+    background_border_color = '000000',
+    background_roundness = 2,
+
+    chapters_marker_width = 3,
+    chapters_marker_color = "888888",
+    cursor_bar_width = 3,
+    seekbar_snap_distance = 15,
+    cursor_bar_color = "BBBBBB",
+    waveform_padding_proportion = 2/3,
+    title_text_size = 32,
+    artist_album_text_size = 24,
+    time_text_size = 24,
+    darker_text_color = "999999",
 }
 options.read_options(player_opts, "music-player-client")
 
@@ -73,27 +94,6 @@ local yellow = '7DBEEF'
 local white = '999999'
 local gray = '555555'
 
--- CONFIG
-local global_offset = 10
-
-local background_opacity = 'BB'
-local background_color_focus = 'AAAAAA'
-local background_color_idle = '666666'
-local background_border_size = '3'
-local background_border_color = '000000'
-local background_roundness = 2
-
-local chapters_marker_width = 3
-local chapters_marker_color = "888888"
-local cursor_bar_width = 3
-local seekbar_snap_distance = 15
-local cursor_bar_color = "BBBBBB"
-local waveform_padding_proportion = 2/3
-local title_text_size = 32
-local artist_album_text_size = 24
-local time_text_size = 24
-local darker_text_color = "999999"
-
 -- VARS
 local ass_changed = false
 
@@ -146,14 +146,14 @@ local function get_background(position, size, focused)
     local a = assdraw.ass_new()
     a:new_event()
     a:append(string.format('{\\bord%s\\shad0\\1a&%s&\\1c&%s&\\3c&%s&}',
-        background_border_size,
-        background_opacity,
-        focused and background_color_focus or background_color_idle,
-        background_border_color
+        player_opts.background_border_size,
+        player_opts.background_opacity,
+        focused and player_opts.background_color_focus or player_opts.background_color_idle,
+        player_opts.background_border_color
     ))
     a:pos(0, 0)
     a:draw_start()
-    a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], background_roundness)
+    a:round_rect_cw(position[1], position[2], position[1] + size[1], position[2] + size[2], player_opts.background_roundness)
     return a.text
 end
 
@@ -797,9 +797,9 @@ do
         if duration and chapters and #chapters > 0 then
             a:new_event()
             a:pos(0, 0)
-            a:append('{\\bord0\\shad0\\1c&' .. chapters_marker_color .. '}')
+            a:append('{\\bord0\\shad0\\1c&' .. player_opts.chapters_marker_color .. '}')
             a:draw_start()
-            local w = chapters_marker_width/2
+            local w = player_opts.chapters_marker_width/2
             local y1 = waveform_position[2]
             local y2 = y1 + waveform_size[2]
             for _, chap in ipairs(chapters) do
@@ -832,9 +832,9 @@ do
         local dist_next = chap_after and get_chap_x(chap_after) - x_pos or 1e30
         local chap_before = chap_after and chap_after - 1 or #chapters
         local dist_prev = x_pos - get_chap_x(chap_before)
-        if dist_prev <= dist_next and dist_prev < seekbar_snap_distance then
+        if dist_prev <= dist_next and dist_prev < player_opts.seekbar_snap_distance then
             return chap_before, get_chap_x(chap_before)
-        elseif dist_next < seekbar_snap_distance then
+        elseif dist_next < player_opts.seekbar_snap_distance then
             return chap_after, get_chap_x(chap_after)
         else
             -- no snapping, previous chapter counts
@@ -866,14 +866,14 @@ do
             if chap then
                 a:new_event()
                 a:pos(track_text_position[1], track_text_position[2])
-                a:append('{\\bord0\\shad0\\an7\\fs' .. title_text_size .. '}')
+                a:append('{\\bord0\\shad0\\an7\\fs' .. player_opts.title_text_size .. '}')
 
                 local chapter = chapters[chap]
                 local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
                 local track_pos = time_pos - chapter.time
                 local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
                 local text = string.format("%s {\\1c&%s&}[%d/%d] [%s%s]",
-                    title, darker_text_color, chap, #chapters,
+                    title, player_opts.darker_text_color, chap, #chapters,
                     track_pos > 0 and mp.format_time(track_pos, "%m:%S/") or '',
                     mp.format_time(track_duration, "%m:%S"))
                 a:append(text)
@@ -909,8 +909,8 @@ do
         if album then
             a:new_event()
             a:pos(album_text_position[1], album_text_position[2])
-            a:append('{\\bord0\\shad0\\an7\\fs' .. artist_album_text_size .. '}')
-            local text = string.format("{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", album.artist, album.album, darker_text_color, album.year)
+            a:append('{\\bord0\\shad0\\an7\\fs' .. player_opts.artist_album_text_size .. '}')
+            local text = string.format("{\\1c&FFFFFF&}%s - %s {\\1c&%s&}[%s]", album.artist, album.album, player_opts.darker_text_color, album.year)
             a:append(text)
         end
         ass_text.album = a.text
@@ -949,7 +949,7 @@ do
             end
             a:new_event()
             a:pos(x, times_position[2])
-            a:append(string.format("{\\an%s\\fs%s\\bord0}", align, time_text_size))
+            a:append(string.format("{\\an%s\\fs%s\\bord0}", align, player_opts.time_text_size))
             a:append(format_time(time))
         end
 
@@ -1069,7 +1069,7 @@ do
             local min_dist = nil
             for _, chap in ipairs(chapters) do
                 local dist = math.abs(x - chap.time / duration)
-                if dist * waveform_size[1] < seekbar_snap_distance then
+                if dist * waveform_size[1] < player_opts.seekbar_snap_distance then
                     if not snap_chap or dist < min_dist then
                         snap_chap = chap.time
                         min_dist = dist
@@ -1165,20 +1165,20 @@ do
         y = y + padding_v
         h = h - 2 * padding_v
         track_text_position = { x, y }
-        y = y + title_text_size
-        h = h - title_text_size
+        y = y + player_opts.title_text_size
+        h = h - player_opts.title_text_size
         album_text_position = { x, y }
-        y = y + artist_album_text_size
-        h = h - artist_album_text_size
+        y = y + player_opts.artist_album_text_size
+        h = h - player_opts.artist_album_text_size
         y = y + 3 -- small space between waveform and album text
         h = h - 3
-        times_position = { x, y + h - time_text_size}
-        h = h - time_text_size
+        times_position = { x, y + h - player_opts.time_text_size}
+        h = h - player_opts.time_text_size
         waveform_position = { x, y }
         waveform_size = { w, h }
 
         if active then
-            set_video_position(waveform_position[1], waveform_position[2] - 0.5 * waveform_padding_proportion * waveform_size[2] / (1 - waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - waveform_padding_proportion))
+            set_video_position(waveform_position[1], waveform_position[2] - 0.5 * player_opts.waveform_padding_proportion * waveform_size[2] / (1 - player_opts.waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - player_opts.waveform_padding_proportion))
             set_overlay()
             redraw_elapsed()
             redraw_times()
@@ -1805,28 +1805,28 @@ local focused_component = nil
 
 function layout_geometry(ww, wh)
     local ww, wh = mp.get_osd_size()
-    local x = global_offset
-    local y = global_offset
-    local w = ww - 2 * global_offset
-    local h = wh - 2 * global_offset
+    local x = player_opts.component_spacing
+    local y = player_opts.component_spacing
+    local w = ww - 2 * player_opts.component_spacing
+    local h = wh - 2 * player_opts.component_spacing
 
     if active_layout == "BROWSE" then
         controls_component.set_geometry(x, y + h - 180, 180, 180)
-        local tw = w - 180 - global_offset
-        local tx = x + 180 + global_offset
+        local tw = w - 180 - player_opts.component_spacing
+        local tx = x + 180 + player_opts.component_spacing
         now_playing_component.set_geometry(tx, y + h - 180, tw, 180)
-        h = h - 180 - global_offset
+        h = h - 180 - player_opts.component_spacing
 
         queue_component.set_geometry(x + w - 200, y, 200, h)
-        w = w - 200 - global_offset
+        w = w - 200 - player_opts.component_spacing
         albums_component.set_geometry(x, y, w, h)
     elseif active_layout == "PLAYING" then
         now_playing_component.set_geometry(x, y, w, 180)
-        y = y + 180 + global_offset
-        h = h - (180 + global_offset)
+        y = y + 180 + player_opts.component_spacing
+        h = h - (180 + player_opts.component_spacing)
         controls_component.set_geometry(x, y, 180, 180)
-        x = x + 180 + global_offset
-        w = w - 180 - global_offset
+        x = x + 180 + player_opts.component_spacing
+        w = w - 180 - player_opts.component_spacing
         local lyrics_w = math.min(w, 600)
         lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
     elseif active_layout == "PLAYING_SMALL" then
