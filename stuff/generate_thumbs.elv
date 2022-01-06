@@ -6,7 +6,7 @@ var w = 150
 var h = 150
 var thumb-dir = thumbs
 use re
-find covers -name '*png' -or -name '*jpg' | each [f]{
+find covers -name '*png' -or -name '*jpg' | each {|f|
     var out = $thumb-dir/(re:replace '_\d+\.(png|jpg)$' '' (path:base $f))'_'$w'_'$h
     if ?(test -f $out) { continue }
     echo Generating $out

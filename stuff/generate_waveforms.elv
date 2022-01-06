@@ -10,7 +10,7 @@ var padding = (/ (- $target-height $real-height) 2)
 use path
 use str
 
-find -L music -mindepth 2 -type d | each [dir]{
+find -L music -mindepth 2 -type d | each {|dir|
     var out = waveform/(path:base $dir).png
     if ?(test -f $out) { continue }
     echo Generating $out
