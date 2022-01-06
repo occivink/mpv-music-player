@@ -1035,6 +1035,16 @@ do
         mp.commandv("playlist-remove", "current")
     end
 
+    local function set_waveform_position()
+        local wpp = player_opts.waveform_padding_proportion
+        set_video_position(
+            waveform_position[1],
+            waveform_position[2] - 0.5 * wpp * waveform_size[2] / (1 - wpp),
+            waveform_size[1],
+            waveform_size[2] / (1 - wpp)
+        )
+    end
+
     local function set_overlay()
         local _, album = album_from_path(properties["path"])
         if active and album then
@@ -1122,6 +1132,7 @@ do
         set_waveform()
         if active then
             time_pos_coarse = math.floor(properties["time-pos"])
+            set_waveform_position()
             redraw_elapsed()
             redraw_times()
             redraw_chapters()
@@ -1171,7 +1182,7 @@ do
         waveform_size = { w, h }
 
         if active then
-            set_video_position(waveform_position[1], waveform_position[2] - 0.5 * player_opts.waveform_padding_proportion * waveform_size[2] / (1 - player_opts.waveform_padding_proportion), waveform_size[1], waveform_size[2] / (1 - player_opts.waveform_padding_proportion))
+            set_waveform_position()
             set_overlay()
             redraw_elapsed()
             redraw_times()
@@ -1806,28 +1817,30 @@ local focused_component = nil
 
 function layout_geometry(ww, wh)
     local ww, wh = mp.get_osd_size()
-    local x = player_opts.component_spacing
-    local y = player_opts.component_spacing
-    local w = ww - 2 * player_opts.component_spacing
-    local h = wh - 2 * player_opts.component_spacing
+    local cs = player_opts.component_spacing
+
+    local x = cs
+    local y = cs
+    local w = ww - 2 * cs
+    local h = wh - 2 * cs
 
     if active_layout == "BROWSE" then
         controls_component.set_geometry(x, y + h - 180, 180, 180)
-        local tw = w - 180 - player_opts.component_spacing
-        local tx = x + 180 + player_opts.component_spacing
+        local tw = w - 180 - cs
+        local tx = x + 180 + cs
         now_playing_component.set_geometry(tx, y + h - 180, tw, 180)
-        h = h - 180 - player_opts.component_spacing
+        h = h - 180 - cs
 
         queue_component.set_geometry(x + w - 200, y, 200, h)
-        w = w - 200 - player_opts.component_spacing
+        w = w - 200 - cs
         albums_component.set_geometry(x, y, w, h)
     elseif active_layout == "PLAYING" then
         now_playing_component.set_geometry(x, y, w, 180)
-        y = y + 180 + player_opts.component_spacing
-        h = h - (180 + player_opts.component_spacing)
+        y = y + 180 + cs
+        h = h - (180 + cs)
         controls_component.set_geometry(x, y, 180, 180)
-        x = x + 180 + player_opts.component_spacing
-        w = w - 180 - player_opts.component_spacing
+        x = x + 180 + cs
+        w = w - 180 - cs
         local lyrics_w = math.min(w, 600)
         lyrics_component.set_geometry(x + (w - lyrics_w) / 2, y, lyrics_w, h)
     elseif active_layout == "PLAYING_SMALL" then
