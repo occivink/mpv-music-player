@@ -90,7 +90,7 @@ local waveform_padding_proportion = 2/3
 local title_text_size = 32
 local artist_album_text_size = 24
 local time_text_size = 24
-local darker_text_color = "888888"
+local darker_text_color = "999999"
 
 -- VARS
 local ass_changed = false
@@ -847,13 +847,19 @@ do
         local chapters = properties["chapter-list"]
         local duration = properties["duration"]
         if duration and chapters and #chapters > 0 then
-            local mx, my = mp.get_mouse_pos()
             local chap
+            local time_pos
             if not scrubbing then
-                chap, _ = get_chapter_with_snap(mx, my, chapters, duration)
+                local x_pos
+                local mx, my = mp.get_mouse_pos()
+                chap, x_pos = get_chapter_with_snap(mx, my, chapters, duration)
+                if chap then
+                    time_pos = (x_pos - waveform_position[1]) / waveform_size[1] * duration
+                end
             end
             if not chap then
                 chap = math.max(0, properties["chapter"] or 0) + 1 -- mpv prop is 1-based
+                time_pos = time_pos_coarse
             end
             if chap then
                 a:new_event()
@@ -862,8 +868,12 @@ do
 
                 local chapter = chapters[chap]
                 local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
+                local track_pos = time_pos - chapter.time
                 local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
-                local text = string.format("%s {\\1c&%s&}[%d/%d] [%s]", title, darker_text_color, chap, #chapters, mp.format_time(track_duration, "%m:%S"))
+                local text = string.format("%s {\\1c&%s&}[%d/%d] [%s%s]",
+                    title, darker_text_color, chap, #chapters,
+                    track_pos > 0 and mp.format_time(track_pos, "%m:%S/") or '',
+                    mp.format_time(track_duration, "%m:%S"))
                 a:append(text)
             end
         end
@@ -1221,6 +1231,7 @@ do
                            time_pos_coarse = value
                            redraw_elapsed()
                            redraw_times()
+                           redraw_track_text()
                        end,
         ["duration"] = function()
             redraw_chapters()
