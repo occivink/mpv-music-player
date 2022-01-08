@@ -209,10 +209,10 @@ function gallery_mt.ensure_view_valid(gallery)
     if v.last >= #gallery.items then
         v.last = #gallery.items
         if g.rows == 1 then
-            v.first = v.last - g.columns + 1
+            v.first = math.max(1, v.last - g.columns + 1)
         else
             local last_row = math.floor((v.last - 1) / g.columns)
-            local first_row = math.max(1, last_row - g.rows + 1)
+            local first_row = math.max(0, last_row - g.rows + 1)
             v.first = 1 + first_row * g.columns
         end
         changed = true
@@ -486,6 +486,10 @@ end
 
 function gallery_mt.activate(gallery)
     if gallery.active then return false end
+    if not gallery:enough_space() then
+        msg.warn("Not enough space, refusing to start")
+        return false
+    end
     if not gallery.geometry.ok then
         msg.warn("Gallery geometry unitialized, refusing to start")
         return false
