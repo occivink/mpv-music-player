@@ -1075,6 +1075,13 @@ do
         send_to_server({"playlist-remove", "0"})
     end
 
+    local function toggle_pause_maybe()
+        local x, y = normalized_coordinates({mp.get_mouse_pos()}, cover_position, cover_size)
+        if x < 0 or y < 0 or x > 1 or y > 1 then return false end
+        send_to_server({"set_property", "pause", properties["pause"] and "no" or "yes"})
+        return true
+    end
+
     local function seek_maybe()
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
@@ -1119,6 +1126,7 @@ do
                           local down = (table["event"] == "down")
                           left_mouse_button_held = down
                           if down then
+                              toggle_pause_maybe()
                               can_scrub = seek_maybe()
                           else
                               scrub_stop()
