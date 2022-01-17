@@ -881,10 +881,11 @@ do
                 local title = string.match(chapter.title, ".*/%d+ (.*)%..-")
                 local track_pos = math.floor(time_pos - chapter.time)
                 local track_duration = chap == #chapters and duration - chapter.time or chapters[chap + 1].time - chapter.time
-                local text = string.format("%s {\\1c&%s&}[%d/%d] [%s%s]",
-                    title, player_opts.darker_text_color, chap, #chapters,
+                local text = string.format("%s {\\1c&%s&}[%s%s] [%d/%d]",
+                    title, player_opts.darker_text_color,
                     track_pos > 0 and mp.format_time(track_pos, "%m:%S/") or '',
-                    mp.format_time(track_duration, "%m:%S"))
+                    mp.format_time(track_duration, "%m:%S"),
+                    chap, #chapters)
                 a:append(text)
             end
         end
