@@ -46,6 +46,10 @@ local player_opts = {
     controls_mute_active_color = '5E66F9',
     controls_volume_inactive_color = '555555',
     controls_hover_tint_factor = 0.15,
+
+    lyrics_arrows_multiplier = 3.0,
+    lyrics_scroll_multiplier = 2.0,
+    lyrics_min_grace_period = 20,
 }
 
 options.read_options(player_opts, "music-player-client")
@@ -1623,7 +1627,7 @@ do
     local function autoscroll()
         if not time_pos_coarse or time_pos_coarse == -1 then return end
         -- don't autoscroll during [0, grace_period] and [end - grace_period, end]
-        local grace_period = math.max(track_length / 15, 20)
+        local grace_period = math.max(track_length / 15, player_opts.lyrics_min_grace_period)
         local pos = time_pos_coarse - track_start
         if pos < grace_period then
             normalized = 0
@@ -1717,10 +1721,10 @@ do
         {"a", function() autoscrolling = true autoscroll() end, {}},
         {"e", function() open_editor() end, {}},
         {"r", function() fetch_lyrics() end, {}},
-        {"UP", function() scroll(-25) end, {repeatable=true}},
-        {"DOWN", function() scroll(25) end, {repeatable=true}},
-        {"WHEEL_UP", function() scroll(-15) end, {repeatable=true}},
-        {"WHEEL_DOWN", function() scroll(15) end, {repeatable=true}},
+        {"UP", function() scroll(-10 * player_opts.lyrics_arrows_multiplier) end, {repeatable=true}},
+        {"DOWN", function() scroll(10 * player_opts.lyrics_arrows_multiplier) end, {repeatable=true}},
+        {"WHEEL_UP", function() scroll(-10 * player_opts.lyrics_scroll_multiplier) end, {repeatable=true}},
+        {"WHEEL_DOWN", function() scroll(10 * player_opts.lyrics_scroll_multiplier) end, {repeatable=true}},
     }
 
     this.set_active = function(active_now)
