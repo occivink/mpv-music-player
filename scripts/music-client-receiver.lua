@@ -32,7 +32,7 @@ local interesting_properties = {
     "playlist",
     "mute",
     "volume",
-    "audio-client-name",
+    "audio-device",
 }
 
 function send_data(who, what, value)
