@@ -25,7 +25,7 @@ Probably not at the moment. The client/server uses unix domain sockets for commu
 
 ## How does output switching work?
 
-Crudely. The `audio-client-name` feature of mpv is used to switch between the client names `mmp-headphones` and `mmp-speakers`. Is is then up to the user to configure each profile to use the respective output (for example, with `pavucontrol`). This works nicely with pulseaudio, but I don't know about other audio drivers.
+Using the `ao-device` option of mpv. Works well with pulseaudio, but I don't know about other sound systems.
 
 ## How can I import my library?
 
