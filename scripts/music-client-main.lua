@@ -969,7 +969,7 @@ do
         local end_x = waveform_position[1] + waveform_size[1]
         local current_x = nil
 
-        if not scrubbing then
+        if not scrubbing and properties["chapter-list"] and #properties["chapter-list"] > 0 then
             local _, norm_x  = get_chapter_with_snap({mp.get_mouse_pos()}, properties["chapter-list"], duration)
             cursor_x = norm_x and (norm_x * waveform_size[1] + waveform_position[1]) or cursor_x
         end
