@@ -1364,7 +1364,7 @@ do
         local is_play = not is_pause
         local is_mute = properties["mute"]
         local is_speakers = properties["audio-device"] == 'pulse/speakers'
-        local is_headphones = properties["audio-device"] == 'pulse/headphones'
+        local is_headphones = properties["audio-device"] == 'auto'
         local current_volume = properties["volume"] / 100
 
         local def = player_opts.controls_default_color
@@ -1497,7 +1497,7 @@ do
         elseif button == speakers then
             send_to_server({"set", "audio-device", "pulse/speakers"})
         elseif button == headphones then
-            send_to_server({"set", "audio-device", "pulse/headphones"})
+            send_to_server({"set", "audio-device", "auto"})
         elseif button == mute then
             send_to_server({"cycle", "mute"})
         end
@@ -1507,7 +1507,7 @@ do
         {"MBTN_LEFT", press_button, {complex=true, repeatable=false}},
         {"m", function() send_to_server({"cycle", "mute"}) end, {}},
         {"s", function() send_to_server({"set", "audio-device", "pulse/speakers"}) end, {}},
-        {"h", function() send_to_server({"set", "audio-device", "pulse/headphones"}) end, {}},
+        {"h", function() send_to_server({"set", "audio-device", "auto"}) end, {}},
         {"RIGHT", function() send_to_server({"add", "chapter", 1}) end, {}},
         {"LEFT", function() send_to_server({"add", "chapter", -1}) end, {}},
         {"UP", function() send_to_server({"add", "volume", 5}) end, {repeatable=true}},
