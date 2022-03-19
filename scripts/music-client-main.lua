@@ -46,6 +46,9 @@ local player_opts = {
     controls_mute_active_color = '5E66F9',
     controls_volume_inactive_color = '555555',
     controls_hover_tint_factor = 0.15,
+    controls_show_device_buttons = true,
+    controls_speaker_device = "auto",
+    controls_headphones_device = "auto",
 
     lyrics_arrows_multiplier = 3.0,
     lyrics_scroll_multiplier = 2.0,
@@ -1357,14 +1360,19 @@ do
 
         -- each button has a little frame of 1px
         local border = 1
-        for _, b in ipairs({play, pause, backwards, forwards, speakers, headphones, mute, volume}) do
+        for _, b in ipairs({play, pause, backwards, forwards, mute, volume}) do
             draw_button(b, border, '000000')
+        end
+        if player_opts.controls_show_device_buttons then
+            for _, b in ipairs({speakers, headphones}) do
+                draw_button(b, border, '000000')
+            end
         end
         local is_pause = properties["pause"]
         local is_play = not is_pause
         local is_mute = properties["mute"]
-        local is_speakers = properties["audio-device"] == 'pulse/speakers'
-        local is_headphones = properties["audio-device"] == 'pulse/headphones'
+        local is_speakers = properties["audio-device"] == player_opts.controls_speaker_device
+        local is_headphones = properties["audio-device"] == player_opts.controls_headphones_device
         local current_volume = properties["volume"] / 100
 
         local def = player_opts.controls_default_color
@@ -1376,10 +1384,12 @@ do
         draw_button(pause, -border, is_pause and player_opts.controls_pause_active_color or def,
             hovered_button == pause and tf)
 
-        draw_button(speakers, -border, is_speakers and player_opts.controls_output_active_color or def,
-            hovered_button == speakers and tf)
-        draw_button(headphones, -border, is_headphones and player_opts.controls_output_active_color or def,
-            hovered_button == headphones and tf)
+        if player_opts.controls_show_device_buttons then
+            draw_button(speakers, -border, is_speakers and player_opts.controls_output_active_color or def,
+                hovered_button == speakers and tf)
+            draw_button(headphones, -border, is_headphones and player_opts.controls_output_active_color or def,
+                hovered_button == headphones and tf)
+        end
 
         draw_button(mute, -border, is_mute and player_opts.controls_mute_active_color or def,
             hovered_button == mute and tf)
@@ -1405,52 +1415,54 @@ do
         draw_icon(forwards, 30, "m 0 0 l 0 100 l 45 70 l 45 100 l 100 50 l 45 0 l 45 30")
         draw_icon(backwards, 30, "m 100 0 l 100 100 l 55 70 l 55 100 l 0 50 l 55 0 l 55 30")
 
-        draw_icon(speakers, 22, "m -5 5 l -5 105 l 30 105 l 30 5 m 70 5 l 70 105 l 105 105 l 105 5")
-        local function circle(center, radius)
-            return table.concat({
-                'm', center[1], center[2] - radius,
-                'b',  center[1] + radius, center[2] - radius,
-                center[1] + radius, center[2] + radius,
-                center[1], center[2] + radius,
-                'b', center[1]  - radius, center[2] + radius,
-                center[1] - radius, center[2] - radius,
-                center[1], center[2] - radius
-            }, ' ')
+        if player_opts.controls_show_device_buttons then
+            draw_icon(speakers, 22, "m -5 5 l -5 105 l 30 105 l 30 5 m 70 5 l 70 105 l 105 105 l 105 5")
+            local function circle(center, radius)
+                return table.concat({
+                    'm', center[1], center[2] - radius,
+                    'b',  center[1] + radius, center[2] - radius,
+                    center[1] + radius, center[2] + radius,
+                    center[1], center[2] + radius,
+                    'b', center[1]  - radius, center[2] + radius,
+                    center[1] - radius, center[2] - radius,
+                    center[1], center[2] - radius
+                }, ' ')
+            end
+            draw_icon(speakers, 22, '{\\1c&333333&}' ..
+                circle({-5 + 35/2, 80}, 12) ..
+                circle({-5 + 35/2, 30}, 7) ..
+                circle({70 + 35/2, 80}, 12) ..
+                circle({70 + 35/2, 30}, 7))
+            draw_icon(headphones, 22, table.concat({ -- really could use some automatic symmetry... oh well
+                'm', 50, 0,-- top of arch's highest point
+                'b', 15, 0,
+                15, 50,
+                15, 60,     -- left can, arch connection
+                'l', 5, 60, --left can, top left
+                'b', 0, 60,
+                0, 100,
+                5, 100, -- left can, bottom left
+                'l', 25, 100, -- left can, bottom right
+                'l', 25, 60, -- left can, top right
+                'l', 20, 60,
+                'b', 20, 50,
+                20, 10,
+                50, 8, -- bottom of arch's highest point, symmetry point
+                'b', 80, 10,
+                80, 50,
+                80, 60,
+                'l', 75, 60,
+                'l', 75, 100,
+                'l', 95, 100,
+                'b', 100, 100,
+                100, 60,
+                95, 60,
+                'l', 85, 60,
+                'b', 85, 50,
+                85, 0,
+                50, 0,
+            }, ' '))
         end
-        draw_icon(speakers, 22, '{\\1c&333333&}' ..
-            circle({-5 + 35/2, 80}, 12) ..
-            circle({-5 + 35/2, 30}, 7) ..
-            circle({70 + 35/2, 80}, 12) ..
-            circle({70 + 35/2, 30}, 7))
-        draw_icon(headphones, 22, table.concat({ -- really could use some automatic symmetry... oh well
-            'm', 50, 0,-- top of arch's highest point
-            'b', 15, 0,
-            15, 50,
-            15, 60,     -- left can, arch connection
-            'l', 5, 60, --left can, top left
-            'b', 0, 60,
-            0, 100,
-            5, 100, -- left can, bottom left
-            'l', 25, 100, -- left can, bottom right
-            'l', 25, 60, -- left can, top right
-            'l', 20, 60,
-            'b', 20, 50,
-            20, 10,
-            50, 8, -- bottom of arch's highest point, symmetry point
-            'b', 80, 10,
-            80, 50,
-            80, 60,
-            'l', 75, 60,
-            'l', 75, 100,
-            'l', 95, 100,
-            'b', 100, 100,
-            100, 60,
-            95, 60,
-            'l', 85, 60,
-            'b', 85, 50,
-            85, 0,
-            50, 0,
-        }, ' '))
 
         draw_icon(mute, 30, "m 0 30 l 0 70 l 50 70 l 100 100 l 100 0 l 50 30")
 
@@ -1495,9 +1507,13 @@ do
         elseif button == forwards then
             send_to_server({"add", "chapter", 1})
         elseif button == speakers then
-            send_to_server({"set", "audio-device", "pulse/speakers"})
+            if player_opts.controls_show_device_buttons then
+                send_to_server({"set", "audio-device", player_opts.controls_speaker_device})
+            end
         elseif button == headphones then
-            send_to_server({"set", "audio-device", "pulse/headphones"})
+            if player_opts.controls_show_device_buttons then
+                send_to_server({"set", "audio-device", player_opts.controls_headphones_device})
+            end
         elseif button == mute then
             send_to_server({"cycle", "mute"})
         end
@@ -1506,13 +1522,17 @@ do
     local bindings = {
         {"MBTN_LEFT", press_button, {complex=true, repeatable=false}},
         {"m", function() send_to_server({"cycle", "mute"}) end, {}},
-        {"s", function() send_to_server({"set", "audio-device", "pulse/speakers"}) end, {}},
-        {"h", function() send_to_server({"set", "audio-device", "pulse/headphones"}) end, {}},
         {"RIGHT", function() send_to_server({"add", "chapter", 1}) end, {}},
         {"LEFT", function() send_to_server({"add", "chapter", -1}) end, {}},
         {"UP", function() send_to_server({"add", "volume", 5}) end, {repeatable=true}},
         {"DOWN", function() send_to_server({"add", "volume", -5}) end, {repeatable=true}},
     }
+    if player_opts.controls_show_device_buttons then
+        bindings[#bindings + 1] =
+            {"s", function() send_to_server({"set", "audio-device", player_opts.controls_speaker_device}) end, {}}
+        bindings[#bindings + 1] =
+            {"h", function() send_to_server({"set", "audio-device", player_opts.controls_headphones_device}) end, {}}
+    end
 
     this.set_focus = function(focus_now)
         focus = focus_now
