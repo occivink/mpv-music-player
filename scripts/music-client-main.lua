@@ -1090,7 +1090,7 @@ do
     local function seek_maybe()
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
-        if not duration or not chapters then return false end
+        if not duration or not chapters or #chapters == 0 then return false end
         local chap, norm_x = get_chapter_with_snap({mp.get_mouse_pos()}, chapters, duration)
         if not chap then return false end
         send_to_server({"set_property", "time-pos",  tostring(norm_x * duration)})
