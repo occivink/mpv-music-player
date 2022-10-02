@@ -30,6 +30,8 @@ local player_opts = {
 
     chapters_marker_width = 3,
     chapters_marker_color = '888888',
+    track_line_width = 3,
+    track_line_color = 'DDDDDD',
     cursor_bar_width = 4,
     cursor_bar_color = 'CB9A79',
     seekbar_snap_distance = 15,
@@ -805,6 +807,7 @@ do
         ass_changed = true
         local a = assdraw.ass_new()
 
+        local path = properties["path"]
         local duration = properties["duration"]
         local chapters = properties["chapter-list"]
         if duration and chapters and #chapters > 0 then
@@ -821,6 +824,17 @@ do
             end
             local x = waveform_position[1] + waveform_size[1]
             a:rect_cw(x - w, y1, x + w, y2)
+        end
+        if path ~= '' then
+            a:new_event()
+            a:pos(0, 0)
+            a:append('{\\bord0\\shad0\\1c&' .. player_opts.track_line_color .. '}')
+            a:draw_start()
+            local y = waveform_position[2] + waveform_size[2] / 2
+            local x1 = waveform_position[1]
+            local x2 = waveform_position[1] + waveform_size[1]
+            local h = player_opts.track_line_width
+            a:rect_cw(x1, y - h/2, x2, y + h/2)
         end
         ass_text.chapters = a.text
     end
@@ -1232,6 +1246,7 @@ do
     this.prop_changed = {
         ["path"] = function()
             left_mouse_button_held = false
+            redraw_chapters()
             scrub_stop()
             set_waveform()
             set_overlay()
