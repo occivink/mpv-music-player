@@ -64,12 +64,7 @@ local utils = require 'mp.utils'
 local assdraw = require 'mp.assdraw'
 local msg = require 'mp.msg'
 
-local lib = mp.find_config_file('scripts/lib.disable')
-if not lib then
-    return
-end
--- lib can be nil if the folder does not exist or we're in --no-config mode
-package.path = package.path .. ';' .. lib .. '/?.lua;'
+package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
 require 'gallery'
 
 local g_root_dir = mp.command_native({"expand-path", player_opts.root_dir})
