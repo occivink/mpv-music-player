@@ -2048,6 +2048,8 @@ mp.commandv("enable-section", "music-player")
 
 local pid = tostring(utils.getpid())
 
+math.randomseed(os.time())
+
 mp.register_event("shutdown", function()
     send_to_server({"script-message", "stop", pid})
     client:close()
