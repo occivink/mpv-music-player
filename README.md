@@ -95,7 +95,7 @@ This is not really possible with the current architecture. Since the playback ha
 
 ## I want to display/edit the metadata of the files
 
-This is not a goal, and I will not implment it.
+This is not a goal, and I will not implement it.
 
 # TODO
 
